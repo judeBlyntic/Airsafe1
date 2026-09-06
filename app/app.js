@@ -820,7 +820,9 @@ function getRenumberedSections() {
     return {
       ...sec,
       title,
-      blocks
+      blocks,
+      secNo: newIdx,
+      isApp
     };
   });
 }
@@ -1284,14 +1286,19 @@ function pageFoot(f, pageLabel) {
   </div>`;
 }
 
+const AIRSAFE_EMAIL = "info@airsafe.net.nz";
+
 /* Cover-page footer for all four templates: assessor name (left, white),
    live report number (centre) and date of issue (right). Both update as
    soon as the user edits those cover fields. */
 function coverFoot(f) {
-  return `<div class="cover-foot">
-    <span class="cf-left">${orEmpty(f.assessor)}</span>
-    <span class="cf-mid">${orEmpty(f.reportNo)}</span>
-    <span class="cf-right">${orEmpty(fmtDate(f.dateOfIssue))}</span>
+  return `<div class="cover-footwrap">
+    <div class="cover-foot-name">${orEmpty(f.assessor)}</div>
+    <div class="cover-foot">
+      <span class="cf-left">${esc(AIRSAFE_EMAIL)}</span>
+      <span class="cf-mid">${orEmpty(f.reportNo)}</span>
+      <span class="cf-right">${orEmpty(fmtDate(f.dateOfIssue))}</span>
+    </div>
   </div>`;
 }
 
@@ -1535,7 +1542,7 @@ async function buildDocx() {
   const f = report.fields;
   const NAVY = "1B1B6F";
   const BODY = 18; // 9pt (half-points)
-  const children = [];
+  const outer = [];
 
   const P = (text, opts = {}) => new Paragraph({
     spacing: { after: 300 },
@@ -1600,14 +1607,14 @@ async function buildDocx() {
 
   // ---- Cover page ----
   if (logoBuf) {
-    children.push(new Paragraph({
+    outer.push(new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 2800, after: 300 },
       children: [new ImageRun({ type: "png", data: logoBuf, transformation: { width: 260, height: 144 },
         altText: { title: "AirSafe", description: "AirSafe logo", name: "coverlogo" } })]
     }));
   }
-  children.push(P(tpl.docTitle, { center: true, bold: true, size: 34, color: NAVY }));
+  outer.push(P(tpl.docTitle, { center: true, bold: true, size: 34, color: NAVY }));
   const coverLine = (label, value) => new Paragraph({
     alignment: AlignmentType.CENTER,
     spacing: { after: 140 },
@@ -1616,11 +1623,11 @@ async function buildDocx() {
       new TextRun({ text: value || "", size: 22, font: "Arial" })
     ]
   });
-  children.push(new Paragraph({ spacing: { after: 300 }, children: [] }));
-  children.push(coverLine("Date of Issue", fmtDate(f.dateOfIssue)));
-  children.push(coverLine("Report Number", f.reportNo));
-  children.push(coverLine("Site Address", f.siteAddress));
-  children.push(new Paragraph({ children: [new PageBreak()] }));
+  outer.push(new Paragraph({ spacing: { after: 300 }, children: [] }));
+  outer.push(coverLine("Date of Issue", fmtDate(f.dateOfIssue)));
+  outer.push(coverLine("Report Number", f.reportNo));
+  outer.push(coverLine("Site Address", f.siteAddress));
+  outer.push(new Paragraph({ children: [new PageBreak()] }));
 
   // ---- Generic body from template ----
   const border = { style: BorderStyle.SINGLE, size: 1, color: "9AA7B5" };
@@ -1631,27 +1638,74 @@ async function buildDocx() {
     shading: opts.head ? { fill: "EEF2FB", type: ShadingType.CLEAR } : undefined,
     children: [new Paragraph({ children: [new TextRun({ text, bold: !!opts.head, size: BODY, color: opts.head ? NAVY : undefined, font: "Arial" })] })]
   });
-  const checkTable = (block) => {
+  const checkTable = (block, tableW = 9360) => {
+    const c0 = Math.round(tableW * 0.4487), c1 = Math.round(tableW * 0.1496);
+    const c2 = tableW - c0 - c1;
     const rows = [new TableRow({ children: [
-      mkCell(block.itemHeader || "Item", 4200, { head: true }),
-      mkCell(block.verHeader || "Verified", 1400, { head: true }),
-      mkCell("Comments", 3760, { head: true })
+      mkCell(block.itemHeader || "Item", c0, { head: true }),
+      mkCell(block.verHeader || "Verified", c1, { head: true }),
+      mkCell("Comments", c2, { head: true })
     ] })];
     block.items.forEach((item, i) => {
       const r = (report.tables[block.key] || [])[i] || { verified: "", comments: "" };
       const val = getVerifiedText(r.verified);
-      rows.push(new TableRow({ children: [mkCell(item, 4200), mkCell(val, 1400), mkCell(r.comments, 3760)] }));
+      rows.push(new TableRow({ children: [mkCell(item, c0), mkCell(val, c1), mkCell(r.comments, c2)] }));
     });
     const parts = [H2(block.title)];
     if (block.caption) parts.push(P(block.caption));
-    parts.push(new Table({ width: { size: 9360, type: WidthType.DXA }, columnWidths: [4200, 1400, 3760], rows }));
+    parts.push(new Table({ width: { size: tableW, type: WidthType.DXA }, columnWidths: [c0, c1, c2], rows }));
     return parts;
   };
+
+  /* Sections from 4 onwards (and the appendices) are drawn inside a frame:
+     a navy title bar with white text, then a bordered body cell. */
+  const FRAME_W = 9360;              // full content width
+  const FRAME_INNER_W = 8860;        // usable width inside the frame's cell margins
+  const frameLine = { style: BorderStyle.SINGLE, size: 6, color: NAVY };
+  const frameBorders = { top: frameLine, bottom: frameLine, left: frameLine, right: frameLine };
+  const framedSection = (title, body) => new Table({
+    width: { size: FRAME_W, type: WidthType.DXA },
+    columnWidths: [FRAME_W],
+    /* Without this docx defaults the table grid to a thin black rule, which
+       would show through as a hairline beside the navy frame. */
+    borders: { ...frameBorders, insideHorizontal: frameLine, insideVertical: frameLine },
+    rows: [
+      new TableRow({
+        cantSplit: true,
+        children: [new TableCell({
+          borders: frameBorders,
+          shading: { fill: NAVY, type: ShadingType.CLEAR, color: "auto" },
+          margins: { top: 130, bottom: 130, left: 170, right: 170 },
+          width: { size: FRAME_W, type: WidthType.DXA },
+          children: [new Paragraph({
+            spacing: { before: 0, after: 0 },
+            children: [new TextRun({ text: title, bold: true, size: 26, color: "FFFFFF", font: "Arial" })]
+          })]
+        })]
+      }),
+      new TableRow({
+        children: [new TableCell({
+          borders: frameBorders,
+          margins: { top: 220, bottom: 220, left: 170, right: 170 },
+          width: { size: FRAME_W, type: WidthType.DXA },
+          children: body.length ? body : [new Paragraph({ children: [] })]
+        })]
+      })
+    ]
+  });
 
   const sections = getRenumberedSections();
   for (let si = 0; si < sections.length; si++) {
     const sec = sections[si];
-    children.push(H1(sec.title));
+    /* Section 4 onwards, plus every appendix, is framed and starts a new page. */
+    const framed = sec.isApp || sec.secNo >= 4;
+    const bodyW = framed ? FRAME_INNER_W : 9360;
+    /* Collect this section's content separately so it can be dropped into a
+       frame cell; unframed sections are appended straight to the document. */
+    const body = [];
+    const children = framed ? body : outer;
+    if (framed) outer.push(new Paragraph({ children: [new PageBreak()] }));
+    if (!framed) children.push(H1(sec.title));
     if (si === 0 && tpl.cover.reportFields) {
       tpl.cover.reportFields.forEach(k => {
         const def = tpl.cover.fields.find(x => x.key === k);
@@ -1671,7 +1725,7 @@ async function buildDocx() {
       else if (b.type === "text") children.push(...multi(f[b.key]));
       else if (b.type === "sigtext") children.push(sigRow(f[b.key]), new Paragraph({ spacing: { after: 180 }, children: [] }));
       else if (b.type === "table") {
-        children.push(...checkTable(b));
+        children.push(...checkTable(b, bodyW));
         children.push(new Paragraph({ spacing: { after: 240 }, children: [] }));
       }
     }
@@ -1684,7 +1738,7 @@ async function buildDocx() {
           const p = photos[i];
           const bytes = dataUrlToBytes(p.data);
           const dims = await imageDims(p.data);
-          const maxW = 430;
+          const maxW = framed ? 400 : 430;
           const scale = Math.min(1, maxW / dims.w);
           children.push(new Paragraph({
             alignment: AlignmentType.CENTER,
@@ -1703,6 +1757,11 @@ async function buildDocx() {
           }));
         }
       }
+    }
+
+    if (framed) {
+      outer.push(framedSection(sec.title, body));
+      outer.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
     }
   }
 
@@ -1738,7 +1797,7 @@ async function buildDocx() {
       properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1500, right: 1300, bottom: 1400, left: 1300 } } },
       headers: { default: pageHeader },
       footers: { default: pageFooter },
-      children
+      children: outer
     }]
   });
   return Packer.toBlob(doc);
