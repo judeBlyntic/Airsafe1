@@ -1,0 +1,15 @@
+1. Bigger heading for the coverpage 46 
+the addres should be 17 
+add the name date report number under the address
+add email, and phone number under name, date, and report number
+
+resize and fix the logo in the header to make it more appealing (letter head: logo/report number/ and date) or if that doesn't work then (asbestos clearance report/report number/date)
+
+from section 4.0 onwords add framing as per the template
+
+make sure pages don't cut sections in half
+
+PDF and/or JPEG upload of files to appendix B and C
+
+add 1.5 photo frame to photo files for all image files
+

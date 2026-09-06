@@ -1,0 +1,10 @@
+# Build artifacts
+app-deploy.zip
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor/local
+.grok-changes/

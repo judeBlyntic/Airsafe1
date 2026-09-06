@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache">
+<meta name="theme-color" content="#1b1b6f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="AirSafe">
+<title>AirSafe Reports</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css?v=19">
+<script src="https://cdn.jsdelivr.net/npm/docx@9/dist/index.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="back-btn" id="btnBack" title="Back to all reports" hidden>←</button>
+    <img src="logo.png" alt="AirSafe" class="topbar-logo">
+    <div class="topbar-title">
+      <strong id="topTitle">AirSafe Reports</strong>
+      <span id="topSubtitle">Clearance certificates &amp; inspection records</span>
+    </div>
+    <div class="topbar-status" id="saveStatus" title="Autosave status" hidden>Saved</div>
+    <button class="fs-btn" id="btnFullscreen" title="Toggle full screen">⛶</button>
+  </div>
+  <nav class="tabs" id="tabsNav" hidden>
+    <button class="tab" data-tab="edit" id="tabEdit">Edit</button>
+    <button class="tab" data-tab="review" id="tabReview">Review</button>
+    <button class="tab" data-tab="send" id="tabSend">Send</button>
+  </nav>
+</header>
+
+<main id="homeView" class="view">
+  <div class="home-head">
+    <h2>Your reports</h2>
+    <button class="btn primary" id="btnNewReport">+ New Report</button>
+  </div>
+  <div id="historyGrid" class="history-grid"></div>
+</main>
+
+<div id="grammarOverlay" class="picker-overlay" hidden>
+  <div class="picker-sheet grammar-sheet">
+    <h3>Spelling &amp; grammar check</h3>
+    <div id="grammarStatus" class="hint">Checking…</div>
+    <div id="grammarList" class="grammar-list"></div>
+    <button class="btn secondary" id="btnGrammarClose">Close</button>
+  </div>
+</div>
+
+<div id="pickerOverlay" class="picker-overlay" hidden>
+  <div class="picker-sheet">
+    <h3>Create a new report</h3>
+    <p class="hint">Choose which report you want to create:</p>
+    <div id="pickerList" class="picker-list"></div>
+    <button class="btn secondary" id="btnPickerCancel">Cancel</button>
+  </div>
+</div>
+
+<main id="editView" class="view"></main>
+
+<main id="reviewView" class="view">
+  <div class="review-toolbar no-print">
+    <button class="btn secondary" id="btnPrint">Save as PDF</button>
+    <button class="btn secondary" id="btnBackToEdit">✏️ Continue editing</button>
+  </div>
+  <div id="reviewDoc" class="review-doc"></div>
+</main>
+
+<main id="sendView" class="view">
+  <div class="send-card">
+    <h2>Send the report</h2>
+    <p class="hint">The report is generated as a Word document (.docx) identical in content to what you see in Review.</p>
+
+    <label class="field-label" for="emailTo">Recipient email</label>
+    <input type="email" id="emailTo" placeholder="client@example.com" inputmode="email">
+
+    <label class="field-label" for="emailSubject">Subject</label>
+    <input type="text" id="emailSubject">
+
+    <label class="field-label" for="emailBody">Message</label>
+    <textarea id="emailBody" rows="6"></textarea>
+
+    <div class="send-actions">
+      <button class="btn primary" id="btnShare">📤 Share / Email with attachment</button>
+      <button class="btn secondary" id="btnDownload">⬇️ Download Word file (.docx)</button>
+      <button class="btn secondary" id="btnMailto">✉️ Open email app</button>
+    </div>
+    <p class="hint" id="shareHint">On a phone, “Share / Email with attachment” opens your email app with the Word file attached. On a PC, download the file first, then attach it in the email that opens.</p>
+    <div id="sendStatus" class="send-status" hidden></div>
+  </div>
+</main>
+
+<footer class="appfooter no-print" id="appFooter" hidden>
+  <button class="btn danger ghost" id="btnReset">Reset this report to blank template</button>
+</footer>
+
+<input type="file" id="photoInput" accept="image/*" multiple hidden>
+
+<script src="templates.js?v=16"></script>
+<script src="clients.js?v=1"></script>
+<script src="app.js?v=21"></script>
+</body>
+</html>
