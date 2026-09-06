@@ -1284,6 +1284,17 @@ function pageFoot(f, pageLabel) {
   </div>`;
 }
 
+/* Cover-page footer for all four templates: assessor name (left, white),
+   live report number (centre) and date of issue (right). Both update as
+   soon as the user edits those cover fields. */
+function coverFoot(f) {
+  return `<div class="cover-foot">
+    <span class="cf-left">${orEmpty(f.assessor)}</span>
+    <span class="cf-mid">${orEmpty(f.reportNo)}</span>
+    <span class="cf-right">${orEmpty(fmtDate(f.dateOfIssue))}</span>
+  </div>`;
+}
+
 function rf(label, value) {
   return `<div class="r-field"><b>${esc(label)}:</b> ${orEmpty(value)}</div>`;
 }
@@ -1375,7 +1386,7 @@ function coverPageHtml(f) {
           <h1>${esc(tpl.docTitle)}</h1>
           <div class="cover-photo-address">${f.siteAddress ? esc(f.siteAddress) : "Insert Address"}</div>
         </div>
-        ${pageFoot(f, "Page 1")}
+        ${coverFoot(f)}
       </div>
     </div>`;
   }
@@ -1390,7 +1401,7 @@ function coverPageHtml(f) {
         <div><b>Site Address:</b> ${orEmpty(f.siteAddress)}</div>
       </div>
     </div>
-    ${pageFoot(f, "Page 1")}
+    ${coverFoot(f)}
   </div>`;
 }
 
@@ -1398,6 +1409,7 @@ function renderReview() {
   const doc = document.getElementById("reviewDoc");
   const f = report.fields;
 
+  doc.style.setProperty("--accent", tpl.accent);
   doc.innerHTML = `<div id="pagesWrap">${coverPageHtml(f)}</div>`;
 
   const wrap = doc.querySelector("#pagesWrap");
@@ -1487,7 +1499,8 @@ function renderReview() {
   }
 
   const total = pages.length + 1;
-  doc.querySelector(".cover-page .page-foot span").textContent = `Page 1 of ${total}`;
+  const coverFootEl = doc.querySelector(".cover-page .page-foot span");
+  if (coverFootEl) coverFootEl.textContent = `Page 1 of ${total}`;
   pages.forEach((p, i) => { p.foot.textContent = `Page ${i + 2} of ${total}`; });
 
   fitReviewScale();

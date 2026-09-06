@@ -525,7 +525,8 @@ input:focus, select:focus, textarea:focus {
 .cover-center h1 {
   color: var(--navy);
   letter-spacing: .06em;
-  font-size: 1.5rem;
+  font-size: 46px;
+  line-height: 1.15;
   margin: 0 0 30px;
 }
 .cover-meta { font-size: 11pt; line-height: 2; }
@@ -560,13 +561,36 @@ input:focus, select:focus, textarea:focus {
 .cover-photo-text { padding-left: 16px; }
 .cover-photo-text h1 {
   color: #fff;
-  font-size: 1.6rem;
+  font-size: 46px;
   letter-spacing: .02em;
-  line-height: 1.25;
+  line-height: 1.15;
   margin: 0 0 10px;
 }
 .cover-photo-address { color: #fff; font-size: .95rem; opacity: .95; padding-left: 16px; }
 .cover-photo .page-foot { border-top-color: rgba(255,255,255,.4); color: rgba(255,255,255,.85); }
+
+/* ---- Cover footer: assessor / report number / date of issue ---- */
+.cover-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  font-size: 9pt;
+  color: #fff;
+}
+.cover-foot .cf-left  { flex: 1; text-align: left; }
+.cover-foot .cf-mid   { flex: 1; text-align: center; }
+.cover-foot .cf-right { flex: 1; text-align: right; }
+.cover-foot .r-empty { color: rgba(255,255,255,.75); }
+/* The photo cover already sits on the blue banner, so white reads directly.
+   The plain covers are white paper, so the band supplies the contrast. */
+.cover-page:not(.cover-photo) .cover-foot {
+  background: var(--accent, var(--navy));
+  margin: 0 -13mm -8mm;
+  padding: 7mm 13mm;
+}
+.cover-photo .cover-foot { padding-top: 6px; border-top: 1px solid rgba(255,255,255,.4); }
 .review-doc h2 { color: var(--navy); font-size: 11pt; border-bottom: 2px solid var(--mint); padding-bottom: 4px; margin: 36px 0 18px; font-family: inherit; }
 .review-doc h3 { color: var(--navy); font-size: 9.5pt; margin: 28px 0 14px; }
 .review-doc p { margin: 1.5em 0; white-space: pre-wrap; }
@@ -692,6 +716,7 @@ input:focus, select:focus, textarea:focus {
   #pagesWrap { transform: none !important; height: auto !important; }
   .a4 { border: none; box-shadow: none; max-width: none; margin: 0; padding: 0; }
   .a4.cover-page { min-height: auto; height: 265mm; }
+  .cover-page:not(.cover-photo) .cover-foot { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .a4.body-page { height: auto; min-height: 265mm; }
   .a4 + .a4 { break-before: page; }
   .review-doc { font-size: 9pt; }
