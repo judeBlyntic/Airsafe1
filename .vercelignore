@@ -1,0 +1,8 @@
+# Only app/ is deployed (outputDirectory). Keep source material out of the build.
+*.dotx
+*.zip
+.grok-changes/
+New update for ahmad.txt
+app/build_single.py
+app/supabase_setup.sql
+app/README.md
