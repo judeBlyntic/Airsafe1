@@ -403,6 +403,53 @@ input:focus, select:focus, textarea:focus {
   border: none; background: none; color: var(--danger);
   font-size: .78rem; cursor: pointer; padding: 2px 4px;
 }
+/* ---- Appendix attachments ---- */
+.attach-section-wrap { margin-top: 16px; }
+.attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: #fff;
+  border: 1px solid var(--navy);
+  color: var(--navy);
+  font-weight: 600;
+}
+.attach-btn-logo { height: 20px; width: auto; display: block; }
+.attach-list { display: flex; flex-direction: column; gap: 10px; }
+.attach-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 12px;
+}
+.attach-icon {
+  flex: none;
+  width: 54px;
+  height: 54px;
+  border-radius: 8px;
+  background: #eef2f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  overflow: hidden;
+}
+.attach-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.attach-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.attach-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.attach-name {
+  font-weight: 700;
+  font-size: .85rem;
+  color: var(--navy);
+  overflow-wrap: anywhere;
+}
+.attach-size { flex: none; font-size: .75rem; color: var(--muted); }
+.attach-tools { display: flex; gap: 12px; align-items: center; }
+.attach-open { font-size: .78rem; font-weight: 600; color: var(--navy); }
+
 .photo-empty {
   border: 2px dashed var(--line);
   border-radius: 10px;

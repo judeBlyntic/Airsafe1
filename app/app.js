@@ -46,7 +46,7 @@ function blankReport(templateId) {
     templateId,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    fields: {}, tables: {}, photos: {},
+    fields: {}, tables: {}, photos: {}, attachments: {},
     hiddenSections: []
   };
   t.cover.fields.forEach(f => r.fields[f.key] = f.def !== undefined ? f.def : "");
@@ -58,6 +58,9 @@ function blankReport(templateId) {
   t.sections.forEach(sec => {
     if (sec.photos) {
       r.photos[sec.id] = [];
+    }
+    if (sec.attachments) {
+      r.attachments[sec.id] = [];
     }
   });
   return r;
@@ -74,10 +77,14 @@ function hydrate(saved) {
   };
   
   const photosObj = {};
+  const attachObj = {};
   const t = TEMPLATES[r.templateId];
   t.sections.forEach(sec => {
     if (sec.photos) {
       photosObj[sec.id] = [];
+    }
+    if (sec.attachments) {
+      attachObj[sec.id] = [];
     }
   });
 
@@ -89,6 +96,8 @@ function hydrate(saved) {
     }
   }
   r.photos = photosObj;
+  if (saved.attachments) Object.assign(attachObj, saved.attachments);
+  r.attachments = attachObj;
   return r;
 }
 
@@ -256,7 +265,8 @@ function getSnapshot() {
   return JSON.stringify({
     fields: report.fields,
     tables: report.tables,
-    photos: report.photos
+    photos: report.photos,
+    attachments: report.attachments
   });
 }
 
@@ -336,6 +346,7 @@ function restoreSnapshot(snapStr) {
   report.fields = snap.fields;
   report.tables = snap.tables;
   report.photos = snap.photos;
+  report.attachments = snap.attachments || {};
   
   if (currentView === "edit") {
     renderEdit();
@@ -670,6 +681,7 @@ function renderEdit() {
     (sec.blocks || []).forEach(b => body.appendChild(renderBlock(b)));
     if (sectionHasClientFields(sec)) body.appendChild(renderClientSaveBar());
     if (sec.photos) body.appendChild(renderPhotoSection(sec.id));
+    if (sec.attachments) body.appendChild(renderAttachSection(sec.id));
     editView.appendChild(card);
   });
 }
@@ -1147,6 +1159,180 @@ function renderPhotoSection(secId) {
   return wrap;
 }
 
+/* ---- Appendix attachments (PDF / Word / image) ---- */
+const fileInput = document.getElementById("fileInput");
+let activeAttachSectionId = "appB";
+const MAX_ATTACH_BYTES = 12 * 1024 * 1024;
+
+function attachKind(type, name) {
+  const n = String(name || "").toLowerCase();
+  if ((type || "").startsWith("image/")) return "image";
+  if (type === "application/pdf" || n.endsWith(".pdf")) return "pdf";
+  if (/word|officedocument\.wordprocessing/.test(type || "") || /\.docx?$/.test(n)) return "word";
+  return "file";
+}
+const ATTACH_ICON = { image: "🖼", pdf: "📕", word: "📘", file: "📄" };
+
+function fmtBytes(n) {
+  if (!n && n !== 0) return "";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + " KB";
+  return (n / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function renderAttachSection(secId) {
+  const wrap = document.createElement("div");
+  wrap.className = "attach-section-wrap";
+  wrap.dataset.secId = secId;
+
+  const actions = document.createElement("div");
+  actions.className = "photo-actions";
+  const addBtn = document.createElement("button");
+  addBtn.className = "btn attach-btn";
+  addBtn.type = "button";
+  addBtn.innerHTML = '<img src="logo.png" alt="" class="attach-btn-logo"><span>📎 Attach file</span>';
+  addBtn.title = "Attach a PDF, Word document or image to this appendix";
+  addBtn.addEventListener("click", () => {
+    activeAttachSectionId = secId;
+    fileInput.click();
+  });
+  actions.appendChild(addBtn);
+  wrap.appendChild(actions);
+
+  const list = document.createElement("div");
+  list.className = "attach-list";
+  list.dataset.attachList = secId;
+  wrap.appendChild(list);
+
+  drawAttachList(list, secId);
+  return wrap;
+}
+
+function drawAttachList(list, secId) {
+  if (!list && !secId) {
+    document.querySelectorAll("[data-attach-list]").forEach(l => drawAttachList(l, l.dataset.attachList));
+    return;
+  }
+  if (!list) list = document.querySelector(`[data-attach-list="${secId}"]`);
+  if (!list) return;
+  list.innerHTML = "";
+
+  const items = report.attachments[secId] || [];
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "photo-empty";
+    empty.textContent = "No files attached. Tap “Attach file” to add a PDF, Word document or image to this appendix.";
+    list.appendChild(empty);
+    return;
+  }
+
+  items.forEach((a, i) => {
+    const row = document.createElement("div");
+    row.className = "attach-card";
+
+    const icon = document.createElement("div");
+    icon.className = "attach-icon";
+    if (a.kind === "image") {
+      const thumb = document.createElement("img");
+      thumb.src = a.data;
+      thumb.alt = a.name;
+      thumb.loading = "lazy";
+      icon.appendChild(thumb);
+    } else {
+      icon.textContent = ATTACH_ICON[a.kind] || ATTACH_ICON.file;
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "attach-meta";
+    const head = document.createElement("div");
+    head.className = "attach-head";
+    const nm = document.createElement("span");
+    nm.className = "attach-name";
+    nm.textContent = a.name;
+    const sz = document.createElement("span");
+    sz.className = "attach-size";
+    sz.textContent = fmtBytes(a.size);
+    head.appendChild(nm);
+    head.appendChild(sz);
+
+    const tools = document.createElement("div");
+    tools.className = "attach-tools";
+    const open = document.createElement("a");
+    open.className = "attach-open";
+    open.textContent = "Open";
+    open.href = a.data;
+    open.target = "_blank";
+    open.rel = "noopener";
+    open.download = a.name;
+    const del = document.createElement("button");
+    del.className = "del-photo";
+    del.type = "button";
+    del.textContent = "🗑 Remove";
+    del.addEventListener("click", () => {
+      if (!confirm("Remove " + a.name + "?")) return;
+      items.splice(i, 1);
+      drawAttachList(list, secId);
+      scheduleSave();
+    });
+    tools.appendChild(open);
+    tools.appendChild(del);
+
+    const comment = document.createElement("textarea");
+    comment.rows = 2;
+    comment.spellcheck = true;
+    comment.lang = "en";
+    comment.placeholder = "Comment for this file…";
+    comment.value = a.comment || "";
+    comment.addEventListener("input", () => {
+      a.comment = comment.value;
+      autoGrow(comment);
+      scheduleSave();
+    });
+
+    meta.appendChild(head);
+    meta.appendChild(tools);
+    meta.appendChild(comment);
+    row.appendChild(icon);
+    row.appendChild(meta);
+    list.appendChild(row);
+  });
+}
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(new Error("could not read file"));
+    fr.readAsDataURL(file);
+  });
+}
+
+fileInput.addEventListener("change", async () => {
+  const files = Array.from(fileInput.files || []);
+  fileInput.value = "";
+  const secId = activeAttachSectionId || "appB";
+  if (!report.attachments[secId]) report.attachments[secId] = [];
+  for (const file of files) {
+    try {
+      if (file.size > MAX_ATTACH_BYTES) {
+        alert(`${file.name} is ${fmtBytes(file.size)}. The limit is ${fmtBytes(MAX_ATTACH_BYTES)} per file.`);
+        continue;
+      }
+      const kind = attachKind(file.type, file.name);
+      /* Images are recompressed like photos so they embed cleanly in the Word
+         file; PDFs and Word documents are stored byte-for-byte. */
+      const data = kind === "image"
+        ? await compressImage(file, 1400, 0.82)
+        : await readFileAsDataURL(file);
+      report.attachments[secId].push({ name: file.name, kind, size: file.size, data, comment: "" });
+    } catch (e) {
+      alert("Could not attach " + file.name + ": " + e.message);
+    }
+  }
+  drawAttachList(null, secId);
+  scheduleSave();
+});
+
 function drawPhotoGrid(grid, secId) {
   if (!grid && !secId) {
     const grids = document.querySelectorAll("[data-photo-grid]");
@@ -1370,6 +1556,28 @@ function buildReviewContent() {
         });
       }
     }
+    if (sec.attachments) {
+      const files = report.attachments[sec.id] || [];
+      if (files.length) {
+        html += `<h3>Attached files</h3>`;
+        files.forEach((a, i) => {
+          if (a.kind === "image") {
+            html += `
+              <div class="r-photo-entry">
+                <div class="r-photo-img-wrap"><img src="${a.data}" alt="${esc(a.name)}"></div>
+                <div class="r-photo-comment"><b>${esc(a.name)}:</b> ${esc(a.comment || "")}</div>
+              </div>`;
+          } else {
+            html += `
+              <div class="r-attach-entry">
+                <b>${esc(ATTACH_ICON[a.kind] || ATTACH_ICON.file)} ${esc(a.name)}</b>
+                <span class="r-attach-note">(${esc(a.kind === "pdf" ? "PDF" : a.kind === "word" ? "Word document" : "file")}, ${esc(fmtBytes(a.size))} — supplied separately)</span>
+                ${a.comment ? `<div>${esc(a.comment)}</div>` : ""}
+              </div>`;
+          }
+        });
+      }
+    }
   });
   return html;
 }
@@ -1573,6 +1781,15 @@ async function buildDocx() {
     ]
   });
 
+  /* logo.png is 270x175. Word needs explicit pixel dimensions, and the old
+     values assumed a wider ratio, which stretched it. Scale to fit inside the
+     same box so the letterhead keeps its footprint but the logo stays true. */
+  const LOGO_W = 270, LOGO_H = 175;
+  const logoBox = (boxW, boxH) => {
+    const k = Math.min(boxW / LOGO_W, boxH / LOGO_H);
+    return { width: Math.round(LOGO_W * k), height: Math.round(LOGO_H * k) };
+  };
+
   let logoBuf = null;
   try { logoBuf = await fetch("logo.png").then(r => r.arrayBuffer()); } catch (e) { /* logo optional */ }
   let sigBuf = null;
@@ -1610,7 +1827,7 @@ async function buildDocx() {
     outer.push(new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 2800, after: 300 },
-      children: [new ImageRun({ type: "png", data: logoBuf, transformation: { width: 260, height: 144 },
+      children: [new ImageRun({ type: "png", data: logoBuf, transformation: logoBox(260, 144),
         altText: { title: "AirSafe", description: "AirSafe logo", name: "coverlogo" } })]
     }));
   }
@@ -1759,6 +1976,49 @@ async function buildDocx() {
       }
     }
 
+    if (sec.attachments) {
+      const files = report.attachments[sec.id] || [];
+      if (files.length) {
+        children.push(H2("Attached files"));
+        for (let i = 0; i < files.length; i++) {
+          const a = files[i];
+          if (a.kind === "image") {
+            const bytes = dataUrlToBytes(a.data);
+            const dims = await imageDims(a.data);
+            const maxW = framed ? 400 : 430;
+            const scale = Math.min(1, maxW / dims.w);
+            children.push(new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 320, after: 180 },
+              children: [new ImageRun({ type: "jpg", data: bytes,
+                transformation: { width: Math.round(dims.w * scale), height: Math.round(dims.h * scale) },
+                altText: { title: a.name, description: a.comment || "", name: "attach" + (i + 1) } })]
+            }));
+            children.push(new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 360 },
+              children: [
+                new TextRun({ text: a.name + ": ", bold: true, size: BODY, color: NAVY, font: "Arial" }),
+                new TextRun({ text: a.comment || "", size: BODY, font: "Arial" })
+              ]
+            }));
+          } else {
+            /* Word cannot embed a PDF or another .docx as readable pages, so
+               these are listed by name and travel with the report separately. */
+            const label = a.kind === "pdf" ? "PDF" : a.kind === "word" ? "Word document" : "File";
+            children.push(new Paragraph({
+              spacing: { after: 120 },
+              children: [
+                new TextRun({ text: a.name, bold: true, size: BODY, color: NAVY, font: "Arial" }),
+                new TextRun({ text: `  (${label}, ${fmtBytes(a.size)} — supplied separately)`, size: BODY, font: "Arial", color: "6B7280" })
+              ]
+            }));
+            if (a.comment) children.push(P(a.comment));
+          }
+        }
+      }
+    }
+
     if (framed) {
       outer.push(framedSection(sec.title, body));
       outer.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
@@ -1768,7 +2028,7 @@ async function buildDocx() {
   // ---- Running header/footer ----
   const CONTENT_W = 11906 - 1300 - 1300;
   const headerChildren = [
-    ...(logoBuf ? [new ImageRun({ type: "png", data: logoBuf, transformation: { width: 96, height: 53 },
+    ...(logoBuf ? [new ImageRun({ type: "png", data: logoBuf, transformation: logoBox(96, 53),
       altText: { title: "AirSafe", description: "AirSafe logo", name: "headlogo" } })] : []),
     new TextRun({ text: "\tReport: " + (f.reportNo || ""), size: 16, color: NAVY, font: "Arial" })
   ];

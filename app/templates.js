@@ -239,8 +239,8 @@ While AirSafe carries out the work to the best of our ability, AirSafe shall hav
       ]
     },
     { id: "appA", title: "APPENDIX A — Photographs", photos: true, blocks: [] },
-    { id: "appB", title: "APPENDIX B — Photographs", photos: true, blocks: [] },
-    { id: "appC", title: "APPENDIX C — Photographs", photos: true, blocks: [] }
+    { id: "appB", title: "APPENDIX B — Photographs", photos: true, attachments: true, blocks: [] },
+    { id: "appC", title: "APPENDIX C — Photographs", photos: true, attachments: true, blocks: [] }
   ]
 };
 
@@ -462,8 +462,8 @@ While AirSafe carries out the work to the best of our ability, AirSafe shall hav
       ]
     },
     { id: "appA", title: "APPENDIX A — Photographs", photos: true, blocks: [] },
-    { id: "appB", title: "APPENDIX B — Photographs", photos: true, blocks: [] },
-    { id: "appC", title: "APPENDIX C — Photographs", photos: true, blocks: [] }
+    { id: "appB", title: "APPENDIX B — Photographs", photos: true, attachments: true, blocks: [] },
+    { id: "appC", title: "APPENDIX C — Photographs", photos: true, attachments: true, blocks: [] }
   ]
 };
 
@@ -620,8 +620,8 @@ The asbestos removal area is not suitable for reoccupation or further works, and
       ]
     },
     { id: "appA", title: "APPENDIX A — Photographs", photos: true, blocks: [] },
-    { id: "appB", title: "APPENDIX B — Photographs", photos: true, blocks: [] },
-    { id: "appC", title: "APPENDIX C — Photographs", photos: true, blocks: [] }
+    { id: "appB", title: "APPENDIX B — Photographs", photos: true, attachments: true, blocks: [] },
+    { id: "appC", title: "APPENDIX C — Photographs", photos: true, attachments: true, blocks: [] }
   ]
 };
 
@@ -779,8 +779,8 @@ While AirSafe carries out the work to the best of our ability, AirSafe shall hav
       ]
     },
     { id: "appA", title: "APPENDIX A — Photographs", photos: true, blocks: [] },
-    { id: "appB", title: "APPENDIX B — Photographs", photos: true, blocks: [] },
-    { id: "appC", title: "APPENDIX C — Photographs", photos: true, blocks: [] }
+    { id: "appB", title: "APPENDIX B — Photographs", photos: true, attachments: true, blocks: [] },
+    { id: "appC", title: "APPENDIX C — Photographs", photos: true, attachments: true, blocks: [] }
   ]
 };
 
