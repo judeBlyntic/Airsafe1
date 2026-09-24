@@ -47,7 +47,7 @@ function blankReport(templateId) {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     fields: {}, tables: {}, photos: {}, attachments: {},
-    hiddenSections: []
+    hiddenSections: [], hiddenBlocks: []
   };
   t.cover.fields.forEach(f => r.fields[f.key] = f.def !== undefined ? f.def : "");
   t.sections.forEach(sec => (sec.blocks || []).forEach(b => {
@@ -73,7 +73,8 @@ function hydrate(saved) {
     ...base, ...saved,
     fields: Object.assign(base.fields, saved.fields || {}),
     tables: Object.assign(base.tables, saved.tables || {}),
-    hiddenSections: Array.isArray(saved.hiddenSections) ? saved.hiddenSections : []
+    hiddenSections: Array.isArray(saved.hiddenSections) ? saved.hiddenSections : [],
+    hiddenBlocks: Array.isArray(saved.hiddenBlocks) ? saved.hiddenBlocks : []
   };
   
   const photosObj = {};
@@ -266,7 +267,8 @@ function getSnapshot() {
     fields: report.fields,
     tables: report.tables,
     photos: report.photos,
-    attachments: report.attachments
+    attachments: report.attachments,
+    hiddenBlocks: report.hiddenBlocks
   });
 }
 
@@ -347,6 +349,7 @@ function restoreSnapshot(snapStr) {
   report.tables = snap.tables;
   report.photos = snap.photos;
   report.attachments = snap.attachments || {};
+  report.hiddenBlocks = snap.hiddenBlocks || [];
   
   if (currentView === "edit") {
     renderEdit();
@@ -678,12 +681,70 @@ function renderEdit() {
 
   tpl.sections.forEach(sec => {
     const { card, body } = sectionCard(sec.title, sec.id);
-    (sec.blocks || []).forEach(b => body.appendChild(renderBlock(b)));
+    let group = null;
+    (sec.blocks || []).forEach(b => {
+      if (b.type === "sub") {
+        group = null;
+        if (b.toggle) {
+          group = document.createElement("div");
+          group.className = "sub-group";
+          if (isBlockHidden(b.toggle)) group.classList.add("sub-hidden");
+          const head = document.createElement("div");
+          head.className = "sub-head";
+          head.appendChild(renderBlock(b));
+          head.appendChild(blockSwitch(b.toggle, hidden => group.classList.toggle("sub-hidden", hidden)));
+          group.appendChild(head);
+          body.appendChild(group);
+          return;
+        }
+      }
+      (group || body).appendChild(renderBlock(b));
+    });
     if (sectionHasClientFields(sec)) body.appendChild(renderClientSaveBar());
     if (sec.photos) body.appendChild(renderPhotoSection(sec.id));
     if (sec.attachments) body.appendChild(renderAttachSection(sec.id));
     editView.appendChild(card);
   });
+}
+
+/* A "sub" block with a `toggle` key owns every block that follows it up to the
+   next sub. Switching it off hides the whole group in Review and Word. */
+function isBlockHidden(key) {
+  return (report.hiddenBlocks || []).includes(key);
+}
+function outputBlocks(sec) {
+  const out = [];
+  let skipping = false;
+  for (const b of (sec.blocks || [])) {
+    if (b.type === "sub") skipping = !!(b.toggle && isBlockHidden(b.toggle));
+    if (!skipping) out.push(b);
+  }
+  return out;
+}
+
+/* Same switch the section headers use, wired to report.hiddenBlocks. */
+function blockSwitch(key, onChange) {
+  const label = document.createElement("label");
+  label.className = "section-switch";
+  label.title = "Toggle Section Visibility";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = !isBlockHidden(key);
+  const slider = document.createElement("span");
+  slider.className = "section-slider";
+  label.appendChild(input);
+  label.appendChild(slider);
+  input.addEventListener("change", (e) => {
+    e.stopPropagation();
+    pushHistory();
+    if (!report.hiddenBlocks) report.hiddenBlocks = [];
+    const idx = report.hiddenBlocks.indexOf(key);
+    if (!input.checked) { if (idx === -1) report.hiddenBlocks.push(key); }
+    else if (idx > -1) report.hiddenBlocks.splice(idx, 1);
+    onChange(!input.checked);
+    scheduleSave();
+  });
+  return label;
 }
 
 function sectionCard(title, id) {
@@ -1521,7 +1582,7 @@ function buildReviewContent() {
         if (def) html += rf(def.label, fieldDisplay(k));
       });
     }
-    (sec.blocks || []).forEach(b => {
+    outputBlocks(sec).forEach(b => {
       if (b.type === "sub") html += `<h3>${esc(b.text)}</h3>`;
       else if (b.type === "field") html += rf(b.label, f[b.key]);
       else if (b.type === "fieldpair") {
@@ -1929,7 +1990,7 @@ async function buildDocx() {
         if (def) children.push(FIELD(def.label, fieldDisplay(k)));
       });
     }
-    for (const b of (sec.blocks || [])) {
+    for (const b of outputBlocks(sec)) {
       if (b.type === "sub") children.push(H2(b.text));
       else if (b.type === "field") children.push(FIELD(b.label, f[b.key]));
       else if (b.type === "fieldpair") {

@@ -310,6 +310,13 @@ html, body {
 }
 .sub-title:first-child { margin-top: 0; }
 
+/* Toggleable sub-section: title + the same switch the section headers use */
+.sub-group { margin-top: 14px; }
+.sub-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sub-head .sub-title { margin: 0; }
+.sub-hidden { opacity: 0.55; }
+.sub-hidden > :not(.sub-head) { display: none !important; }
+
 .table-caption {
   color: var(--muted);
   font-size: .82rem;

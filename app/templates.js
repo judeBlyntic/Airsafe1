@@ -24,8 +24,8 @@ const SIGNATURE_BLOCKS = [
 ];
 
 const CLIENT_INFO_BLOCKS = [
-  { type: "field", key: "companyName", label: "2.1 Company Name" },
-  { type: "field", key: "companyAddress", label: "2.2 Company Address" },
+  { type: "field", key: "companyName", label: "2.1 Company Name/Individual’s" },
+  { type: "field", key: "companyAddress", label: "2.2 Company Address/Individual’s" },
   { type: "field", key: "contactPerson", label: "2.3 Contact Person" },
   { type: "field", key: "clientPhone", label: "2.4 Phone" },
   { type: "field", key: "clientEmail", label: "2.5 Email" }
@@ -136,7 +136,7 @@ See Appendix A for photographs taken prior to and following the removal of ACMs.
 No surface swab sampling was undertaken, in accordance with the WorkSafe New Zealand Good Practice Guidelines for Conducting Asbestos Air Monitoring and Clearance Inspections (April 2026).` },
         { type: "table", key: "t424", title: "4.2.4 Stage 4 – Final Assessment Following Enclosure Removal", items: [
           "Enclosure Removed", "Surrounding Areas Clean", "No Visible Asbestos Debris or Residual Contamination" ] },
-        { type: "sub", text: "4.3 ACMs Remaining" },
+        { type: "sub", text: "4.3 ACMs Remaining", toggle: "acmsRemaining" },
         { type: "text", key: "acmsRemaining", rows: 10, def:
 `The following (assumed) ACMs were not included within the scope of works for this project. Therefore, it was not/they have not been removed and are to remain In-situ:
 • XXXX
@@ -340,7 +340,7 @@ See Appendix A for attached Photographs prior and following the removal of ACMs.
         { type: "field", key: "s2Status", label: "Stage 2 Status", fieldType: "select", options: ["Completed", "Not Completed"], def: "Completed" },
         { type: "field", key: "s2Assessor", label: "Stage 2 Assessor" },
         { type: "fieldpair", keys: ["s2Date", "s2Time"], labels: ["Stage 2 Date", "Stage 2 Time"], types: ["date", "time"] },
-        { type: "sub", text: "4.3 ACMs Remaining" },
+        { type: "sub", text: "4.3 ACMs Remaining", toggle: "acmsRemaining" },
         { type: "text", key: "acmsRemaining", rows: 10, def:
 `The following (assumed) ACMs were not included within the scope of works for this project. Therefore, it was not/they have not been removed and are to remain In-situ:
 • XXXX
