@@ -1575,7 +1575,7 @@ function buildReviewContent() {
   let html = "";
   const sections = getRenumberedSections();
   sections.forEach((sec, si) => {
-    html += `<h2>${esc(sec.title)}</h2>`;
+    html += `<h2 data-secid="${esc(sec.id)}">${esc(sec.title)}</h2>`;
     if (si === 0 && tpl.cover.reportFields) {
       tpl.cover.reportFields.forEach(k => {
         const def = tpl.cover.fields.find(x => x.key === k);
@@ -1583,7 +1583,7 @@ function buildReviewContent() {
       });
     }
     outputBlocks(sec).forEach(b => {
-      if (b.type === "sub") html += `<h3>${esc(b.text)}</h3>`;
+      if (b.type === "sub") html += `<h3${b.toggle ? ` data-toggle="${esc(b.toggle)}"` : ""}>${esc(b.text)}</h3>`;
       else if (b.type === "field") html += rf(b.label, f[b.key]);
       else if (b.type === "fieldpair") {
         const vals = b.keys.map((k, i) => {
@@ -1699,10 +1699,22 @@ function renderReview() {
 
   let photosOnPage = 0;
 
+  // Class A/B: 4.3 ACMs Remaining, 5.0 Airborne Fibre Monitoring and 6.0/7.0 Notes
+  // and Limitations must each stand alone on their own A4 page(s), separate from
+  // whatever precedes or follows them.
+  const soloSecIds = (tpl.id === "classA" || tpl.id === "classB")
+    ? tpl.sections.filter(s => s.title.includes("AIRBORNE FIBRE MONITORING") || s.title.includes("NOTES AND LIMITATIONS")).map(s => s.id)
+    : [];
+  let soloPending = false;
+
   while (queue.length) {
     const block = queue.shift();
     const isPhoto = block.classList.contains("r-photo-entry");
     const isAppendixH2 = block.tagName === "H2" && block.textContent.startsWith("APPENDIX");
+    const isSignificantHeading = block.tagName === "H2" || (block.tagName === "H3" && block.hasAttribute("data-toggle"));
+    const isSoloStart = isSignificantHeading && (
+      block.tagName === "H3" ? block.dataset.toggle === "acmsRemaining" : soloSecIds.includes(block.dataset.secid)
+    );
 
     let forceNewPage = false;
     if (isPhoto && photosOnPage >= 3) {
@@ -1711,6 +1723,10 @@ function renderReview() {
     if (isAppendixH2 && cur.content.children.length > 0) {
       forceNewPage = true;
     }
+    if (isSignificantHeading && (isSoloStart || soloPending) && cur.content.children.length > 0) {
+      forceNewPage = true;
+    }
+    if (isSignificantHeading) soloPending = isSoloStart;
 
     if (forceNewPage) {
       cur = newBodyPage(wrap, f);
@@ -1736,16 +1752,21 @@ function renderReview() {
         carry.unshift(prev);
         prev = prev.previousElementSibling;
       }
-      cur = newBodyPage(wrap, f);
-      pages.push(cur);
-      photosOnPage = 0;
-      carry.forEach(el => {
-        cur.content.appendChild(el);
-        if (el.classList.contains("r-photo-entry")) {
-          photosOnPage++;
-          cur.content.classList.add("justified-photos");
-        }
-      });
+      // If the carry would take every element on this page, moving it to a fresh
+      // page would just leave this one blank — nothing to gain, so leave it put
+      // and let the paragraph-splitting logic below shrink it to fit instead.
+      if (carry.length < cur.content.children.length) {
+        cur = newBodyPage(wrap, f);
+        pages.push(cur);
+        photosOnPage = 0;
+        carry.forEach(el => {
+          cur.content.appendChild(el);
+          if (el.classList.contains("r-photo-entry")) {
+            photosOnPage++;
+            cur.content.classList.add("justified-photos");
+          }
+        });
+      }
     }
 
     // A multi-paragraph text block can still be taller than one whole page even by
@@ -1991,7 +2012,11 @@ async function buildDocx() {
       });
     }
     for (const b of outputBlocks(sec)) {
-      if (b.type === "sub") children.push(H2(b.text));
+      if (b.type === "sub") {
+        // 4.3 ACMs Remaining gets its own page, matching the Review preview.
+        if (b.toggle === "acmsRemaining") children.push(new Paragraph({ children: [new PageBreak()] }));
+        children.push(H2(b.text));
+      }
       else if (b.type === "field") children.push(FIELD(b.label, f[b.key]));
       else if (b.type === "fieldpair") {
         const vals = b.keys.map((k, i) => {
