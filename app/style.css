@@ -663,6 +663,27 @@ input:focus, select:focus, textarea:focus {
 .review-doc table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 9pt; }
 .review-doc table th, .review-doc table td { border: 1px solid #c9d2dc; padding: 6px 8px; text-align: left; vertical-align: top; }
 .review-doc table th { background: #eef2fb; color: var(--navy); }
+/* 4.3 ACMs Remaining: filled title bar over a bordered body, like a one-cell table */
+.review-doc h3.r-boxhead { background: #eef2fb; color: var(--navy); margin: 16px 0 0; padding: 6px 8px; border: 1px solid #c9d2dc; }
+.review-doc .r-boxed { border: 1px solid #c9d2dc; border-top: 0; padding: 1px 10px; margin: 0 0 24px; }
+.review-doc .r-boxed p { margin: .9em 0; }
+/* Whole sections in the same box: h2 is the title bar, following blocks get side borders */
+.review-doc h2.r-boxhead { background: #eef2fb; color: var(--navy); margin: 16px 0 0; padding: 6px 8px; border: 1px solid #c9d2dc; font-size: 10.5pt; }
+.review-doc .r-in { display: flow-root; margin-top: 0; margin-bottom: 0; padding-left: 10px; padding-right: 10px; border-left: 1px solid #c9d2dc; border-right: 1px solid #c9d2dc; }
+.review-doc h3.r-in { margin: 0; padding-top: 16px; padding-bottom: 2px; }
+.review-doc .r-in.r-field { padding-top: 6px; padding-bottom: 6px; }
+.review-doc .r-in.r-sigrow { margin: 0; padding-top: 10px; padding-bottom: 10px; }
+.review-doc .r-in.r-in-last { border-bottom: 1px solid #c9d2dc; margin-bottom: 24px; }
+.review-doc .r-fitgroup h2 { font-size: calc(11pt * var(--fit)); margin: calc(20px * var(--fit)) 0 calc(10px * var(--fit)); }
+.review-doc .r-fitgroup h3.r-boxhead { margin: calc(14px * var(--fit)) 0 0; padding: calc(6px * var(--fit)) calc(8px * var(--fit)); }
+.review-doc .r-fitgroup .r-boxed { margin-bottom: calc(14px * var(--fit)); }
+/* 4.2.1-4.2.4 share one page; --fit (set by the pager) scales everything down to fit */
+.review-doc .r-fitgroup { --fit: 1; }
+.review-doc .r-fitgroup h3 { font-size: calc(9.5pt * var(--fit)); margin: calc(22px * var(--fit)) 0 calc(10px * var(--fit)); }
+.review-doc .r-fitgroup table { font-size: calc(9pt * var(--fit)); margin: calc(12px * var(--fit)) 0 calc(18px * var(--fit)); }
+.review-doc .r-fitgroup table th, .review-doc .r-fitgroup table td { padding: calc(6px * var(--fit)) calc(8px * var(--fit)); }
+.review-doc .r-fitgroup .r-table-caption, .review-doc .r-fitgroup .r-field { font-size: calc(9pt * var(--fit)); margin: calc(8px * var(--fit)) 0; }
+.review-doc .r-fitgroup p { font-size: calc(9pt * var(--fit)); margin: calc(1.2em * var(--fit)) 0; }
 /* Assessor block: text left, signature right */
 .sig-edit-row { display: flex; align-items: center; gap: 16px; }
 .sig-edit-row .ta-field { flex: 1; }

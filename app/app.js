@@ -440,21 +440,13 @@ function makeInput(key, type, options) {
     };
     updateState();
 
-    let clickCount = 0;
-    let clickTimer = null;
+    // Each click cycles Yes -> No -> N/A -> blank, same as the table tick boxes.
+    const CYCLE = { "Yes": "No", "No": "N/A", "N/A": "", "": "Yes" };
     box.addEventListener("click", () => {
-      clickCount++;
-      clearTimeout(clickTimer);
-      clickTimer = setTimeout(() => {
-        const next = clickCount === 1 ? "Yes" : clickCount === 2 ? "No" : "N/A";
-        clickCount = 0;
-        if (normalize(report.fields[key]) !== next) {
-          pushHistory();
-          report.fields[key] = next;
-          updateState();
-          scheduleSave();
-        }
-      }, 450);
+      pushHistory();
+      report.fields[key] = CYCLE[normalize(report.fields[key])];
+      updateState();
+      scheduleSave();
     });
 
     container.appendChild(box);
@@ -1557,16 +1549,23 @@ function paras(text) {
   if (!t) return `<p>${orEmpty("")}</p>`;
   return t.split(/\n\s*\n/).map(chunk => `<p>${esc(chunk)}</p>`).join("");
 }
+/* Class A/B boxed design: sections drawn as a filled title bar over a bordered body,
+   and these text blocks (with their sub-heading) drawn as the same one-cell box. */
+const BOXED_SECTION_RE = /VISUAL CLEARANCE INSPECTION|AIRBORNE FIBRE MONITORING|NOTES AND LIMITATIONS|RE-OCCUPATION/;
+const BOXED_TEXT_KEYS = ["acmsRemaining", "scopeOfWorks", "areasInspected"];
+const FIT_PAGE_RE = /CLIENT INFORMATION|REMOVAL INFORMATION/;
+const isBoxTpl = () => tpl.id === "classA" || tpl.id === "classB";
+
 function rTable(block) {
   let h = `<h3>${esc(block.title)}</h3>`;
   if (block.caption) h += `<p class="r-table-caption">${esc(block.caption)}</p>`;
-  h += `<table><tr><th>${esc(block.itemHeader || "Item")}</th><th>${esc(block.verHeader || "Verified")}</th><th>Comments</th></tr>`;
+  h += `<div class="r-tw"><table><tr><th>${esc(block.itemHeader || "Item")}</th><th>${esc(block.verHeader || "Verified")}</th><th>Comments</th></tr>`;
   block.items.forEach((item, i) => {
     const row = (report.tables[block.key] || [])[i] || { verified: "", comments: "" };
     const val = getVerifiedText(row.verified);
     h += `<tr><td>${esc(item)}</td><td>${esc(val)}</td><td>${esc(row.comments)}</td></tr>`;
   });
-  return h + `</table>`;
+  return h + `</table></div>`;
 }
 
 /* Generic report body driven entirely by the template definition. */
@@ -1574,7 +1573,10 @@ function buildReviewContent() {
   const f = report.fields;
   let html = "";
   const sections = getRenumberedSections();
+  let fitPageOpen = false;
   sections.forEach((sec, si) => {
+    // 2.0 Client Information + 3.0 Removal Information share one shrink-to-fit page.
+    if (isBoxTpl() && FIT_PAGE_RE.test(sec.title) && !fitPageOpen) { html += `<div class="r-fitgroup">`; fitPageOpen = true; }
     html += `<h2 data-secid="${esc(sec.id)}">${esc(sec.title)}</h2>`;
     if (si === 0 && tpl.cover.reportFields) {
       tpl.cover.reportFields.forEach(k => {
@@ -1582,8 +1584,15 @@ function buildReviewContent() {
         if (def) html += rf(def.label, fieldDisplay(k));
       });
     }
-    outputBlocks(sec).forEach(b => {
-      if (b.type === "sub") html += `<h3${b.toggle ? ` data-toggle="${esc(b.toggle)}"` : ""}>${esc(b.text)}</h3>`;
+    // 4.2.1 onwards up to 4.3 is wrapped so the pager can keep it on one page.
+    let inFit = false;
+    const blocks = outputBlocks(sec);
+    blocks.forEach((b, bi) => {
+      if (b.type === "table" && b.key === "t421" && !inFit) { html += `<div class="r-fitgroup">`; inFit = true; }
+      if (inFit && b.type === "sub") { html += `</div>`; inFit = false; }
+      const nx = blocks[bi + 1];
+      const boxHead = b.type === "sub" && isBoxTpl() && nx && nx.type === "text" && BOXED_TEXT_KEYS.includes(nx.key);
+      if (b.type === "sub") html += `<h3${boxHead ? ` class="r-boxhead"` : ""}${b.toggle ? ` data-toggle="${esc(b.toggle)}"` : ""}>${esc(b.text)}</h3>`;
       else if (b.type === "field") html += rf(b.label, f[b.key]);
       else if (b.type === "fieldpair") {
         const vals = b.keys.map((k, i) => {
@@ -1592,12 +1601,15 @@ function buildReviewContent() {
         });
         html += rf(b.labels.join(" / "), vals.filter(Boolean).join(" · "));
       }
-      else if (b.type === "text") html += `<div class="r-textblock">${paras(f[b.key])}</div>`;
+      else if (b.type === "text") html += `<div class="r-textblock${isBoxTpl() && BOXED_TEXT_KEYS.includes(b.key) ? " r-boxed" : ""}">${paras(f[b.key])}</div>`;
       else if (b.type === "sigtext") {
         html += `<div class="r-sigrow"><div class="r-sigtext">${paras(f[b.key])}</div><img class="r-signature" src="signature.png" alt="Signature"></div>`;
       }
       else if (b.type === "table") html += rTable(b);
     });
+    if (inFit) html += `</div>`;
+    const nextSec = sections[si + 1];
+    if (fitPageOpen && !(nextSec && FIT_PAGE_RE.test(nextSec.title))) { html += `</div>`; fitPageOpen = false; }
     if (sec.photos) {
       const photos = report.photos[sec.id] || [];
       if (photos.length === 0) {
@@ -1693,6 +1705,27 @@ function renderReview() {
   temp.innerHTML = buildReviewContent();
   const queue = Array.from(temp.children);
 
+  // Boxed sections: h2 becomes the filled title bar, every block after it gets side
+  // borders and the last one the bottom border. 4.3 (data-toggle) starts its own box.
+  if (isBoxTpl()) {
+    let last = null, boxing = false;
+    const closeBox = () => { if (last) last.classList.add("r-in-last"); last = null; };
+    queue.forEach(el => {
+      if (el.tagName === "H2") {
+        closeBox();
+        boxing = BOXED_SECTION_RE.test(el.textContent);
+        if (boxing) el.classList.add("r-boxhead");
+      } else if (boxing) {
+        if (el.tagName === "H3" && el.hasAttribute("data-toggle")) { closeBox(); boxing = false; return; }
+        // Class A: the assessor sign-off blocks sit below the 7.0 box, not inside it.
+        if (tpl.id === "classA" && el.tagName === "H3" && el.textContent.startsWith("Clearance Certificate Issued by")) { closeBox(); boxing = false; return; }
+        el.classList.add("r-in");
+        last = el;
+      }
+    });
+    closeBox();
+  }
+
   const pages = [];
   let cur = newBodyPage(wrap, f);
   pages.push(cur);
@@ -1727,6 +1760,8 @@ function renderReview() {
       forceNewPage = true;
     }
     if (isSignificantHeading) soloPending = isSoloStart;
+    const isFit = block.classList.contains("r-fitgroup");
+    if (isFit && cur.content.children.length > 0) forceNewPage = true;
 
     if (forceNewPage) {
       cur = newBodyPage(wrap, f);
@@ -1738,6 +1773,12 @@ function renderReview() {
     if (isPhoto) {
       photosOnPage++;
       cur.content.classList.add("justified-photos");
+    }
+    // Stage 1-4 tables share one page: shrink the text step by step until they fit.
+    if (isFit) {
+      for (let s = 1; s >= 0.45 && cur.content.scrollHeight > cur.content.clientHeight; s -= 0.05) {
+        block.style.setProperty("--fit", s.toFixed(2));
+      }
     }
 
     if (cur.content.scrollHeight <= cur.content.clientHeight) continue;
@@ -1787,7 +1828,8 @@ function renderReview() {
           const rest = paraEls.slice(best);
           rest.forEach(p => block.removeChild(p));
           const cont = document.createElement("div");
-          cont.className = "r-textblock";
+          cont.className = block.className;
+          block.classList.remove("r-in-last");
           rest.forEach(p => cont.appendChild(p));
           queue.unshift(cont);
         }
@@ -1962,29 +2004,33 @@ async function buildDocx() {
   const FRAME_INNER_W = 8860;        // usable width inside the frame's cell margins
   const frameLine = { style: BorderStyle.SINGLE, size: 6, color: NAVY };
   const frameBorders = { top: frameLine, bottom: frameLine, left: frameLine, right: frameLine };
-  const framedSection = (title, body) => new Table({
+  const lightLine = { style: BorderStyle.SINGLE, size: 1, color: "9AA7B5" };
+  const lightBorders = { top: lightLine, bottom: lightLine, left: lightLine, right: lightLine };
+  const framedSection = (title, body, light) => new Table({
     width: { size: FRAME_W, type: WidthType.DXA },
     columnWidths: [FRAME_W],
     /* Without this docx defaults the table grid to a thin black rule, which
        would show through as a hairline beside the navy frame. */
-    borders: { ...frameBorders, insideHorizontal: frameLine, insideVertical: frameLine },
+    borders: light
+      ? { ...lightBorders, insideHorizontal: lightLine, insideVertical: lightLine }
+      : { ...frameBorders, insideHorizontal: frameLine, insideVertical: frameLine },
     rows: [
       new TableRow({
         cantSplit: true,
         children: [new TableCell({
-          borders: frameBorders,
-          shading: { fill: NAVY, type: ShadingType.CLEAR, color: "auto" },
-          margins: { top: 130, bottom: 130, left: 170, right: 170 },
+          borders: light ? lightBorders : frameBorders,
+          shading: { fill: light ? "EEF2FB" : NAVY, type: ShadingType.CLEAR, color: "auto" },
+          margins: light ? { top: 80, bottom: 80, left: 140, right: 140 } : { top: 130, bottom: 130, left: 170, right: 170 },
           width: { size: FRAME_W, type: WidthType.DXA },
           children: [new Paragraph({
             spacing: { before: 0, after: 0 },
-            children: [new TextRun({ text: title, bold: true, size: 26, color: "FFFFFF", font: "Arial" })]
+            children: [new TextRun({ text: title, bold: true, size: light ? 24 : 26, color: light ? NAVY : "FFFFFF", font: "Arial" })]
           })]
         })]
       }),
       new TableRow({
         children: [new TableCell({
-          borders: frameBorders,
+          borders: light ? lightBorders : frameBorders,
           margins: { top: 220, bottom: 220, left: 170, right: 170 },
           width: { size: FRAME_W, type: WidthType.DXA },
           children: body.length ? body : [new Paragraph({ children: [] })]
@@ -2002,8 +2048,13 @@ async function buildDocx() {
     /* Collect this section's content separately so it can be dropped into a
        frame cell; unframed sections are appended straight to the document. */
     const body = [];
-    const children = framed ? body : outer;
+    let children = framed ? body : outer;
+    const tail = [];   // Class A: sign-off blocks drawn below the frame instead of inside it
     if (framed) outer.push(new Paragraph({ children: [new PageBreak()] }));
+    // 2.0 Client Information starts a fresh page so it can sit with 3.0 Removal Information.
+    if (!framed && isBoxTpl() && FIT_PAGE_RE.test(sec.title) && !(sections[si - 1] && FIT_PAGE_RE.test(sections[si - 1].title))) {
+      children.push(new Paragraph({ children: [new PageBreak()] }));
+    }
     if (!framed) children.push(H1(sec.title));
     if (si === 0 && tpl.cover.reportFields) {
       tpl.cover.reportFields.forEach(k => {
@@ -2011,11 +2062,18 @@ async function buildDocx() {
         if (def) children.push(FIELD(def.label, fieldDisplay(k)));
       });
     }
-    for (const b of outputBlocks(sec)) {
+    let boxTitle = null;
+    const secBlocks = outputBlocks(sec);
+    for (let bi = 0; bi < secBlocks.length; bi++) {
+      const b = secBlocks[bi];
+      if (framed && tpl.id === "classA" && b.type === "sub" && b.text.startsWith("Clearance Certificate Issued by")) children = tail;
       if (b.type === "sub") {
-        // 4.3 ACMs Remaining gets its own page, matching the Review preview.
-        if (b.toggle === "acmsRemaining") children.push(new Paragraph({ children: [new PageBreak()] }));
-        children.push(H2(b.text));
+        const nx = secBlocks[bi + 1];
+        if (isBoxTpl() && nx && nx.type === "text" && BOXED_TEXT_KEYS.includes(nx.key)) {
+          // 4.3 gets its own page, matching the Review preview.
+          if (b.toggle === "acmsRemaining") children.push(new Paragraph({ children: [new PageBreak()] }));
+          boxTitle = b.text;   // drawn as a filled title bar + bordered body with the text block below
+        } else children.push(H2(b.text));
       }
       else if (b.type === "field") children.push(FIELD(b.label, f[b.key]));
       else if (b.type === "fieldpair") {
@@ -2025,9 +2083,34 @@ async function buildDocx() {
         });
         children.push(FIELD(b.labels.join(" / "), vals.filter(Boolean).join("  ·  ")));
       }
+      else if (b.type === "text" && BOXED_TEXT_KEYS.includes(b.key) && boxTitle) {
+        const edge = { style: BorderStyle.SINGLE, size: 1, color: "9AA7B5" };
+        const edges = { top: edge, bottom: edge, left: edge, right: edge };
+        children.push(new Table({
+          width: { size: bodyW, type: WidthType.DXA },
+          columnWidths: [bodyW],
+          rows: [
+            new TableRow({ cantSplit: true, children: [new TableCell({
+              borders: edges, width: { size: bodyW, type: WidthType.DXA },
+              shading: { fill: "EEF2FB", type: ShadingType.CLEAR, color: "auto" },
+              margins: { top: 60, bottom: 60, left: 100, right: 100 },
+              children: [new Paragraph({ children: [new TextRun({ text: boxTitle, bold: true, size: BODY, color: NAVY, font: "Arial" })] })]
+            })] }),
+            new TableRow({ children: [new TableCell({
+              borders: edges, width: { size: bodyW, type: WidthType.DXA },
+              margins: { top: 140, bottom: 140, left: 140, right: 140 },
+              children: multi(f[b.key])
+            })] })
+          ]
+        }));
+        children.push(new Paragraph({ spacing: { after: 240 }, children: [] }));
+        boxTitle = null;
+      }
       else if (b.type === "text") children.push(...multi(f[b.key]));
       else if (b.type === "sigtext") children.push(sigRow(f[b.key]), new Paragraph({ spacing: { after: 180 }, children: [] }));
       else if (b.type === "table") {
+        // Stage 1-4 checklists start on a fresh page so they stay together.
+        if (b.key === "t421") children.push(new Paragraph({ children: [new PageBreak()] }));
         children.push(...checkTable(b, bodyW));
         children.push(new Paragraph({ spacing: { after: 240 }, children: [] }));
       }
@@ -2106,8 +2189,9 @@ async function buildDocx() {
     }
 
     if (framed) {
-      outer.push(framedSection(sec.title, body));
+      outer.push(framedSection(sec.title, body, isBoxTpl() && !sec.isApp && BOXED_SECTION_RE.test(sec.title)));
       outer.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
+      outer.push(...tail);
     }
   }
 
