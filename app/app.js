@@ -1675,6 +1675,8 @@ function coverPageHtml(f) {
         <div class="cover-photo-text">
           <h1>${esc(tpl.docTitle)}</h1>
           <div class="cover-photo-address">${f.siteAddress ? esc(f.siteAddress) : "Insert Address"}</div>
+          <div class="cover-photo-meta">Report Number: ${f.reportNo ? esc(f.reportNo) : "Insert Report Number"}</div>
+          <div class="cover-photo-meta">Work Order Number: ${f.workOrder ? esc(f.workOrder) : "Insert Work Order Number"}</div>
         </div>
         ${coverFoot(f)}
       </div>
@@ -1890,8 +1892,16 @@ async function buildDocx() {
       children: [new TextRun({ text: line, size: BODY, font: "Arial" })]
     })
   );
-  const H1 = (text) => new Paragraph({
+  /* A page break done as a paragraph setting ("page break before") never leaves a
+     blank page behind, unlike a separate paragraph holding a break character. */
+  const pageCarrier = () => new Paragraph({
+    pageBreakBefore: true,
+    spacing: { before: 0, after: 0, line: 20, lineRule: "exact" },
+    children: [new TextRun({ text: "", size: 2 })]
+  });
+  const H1 = (text, o = {}) => new Paragraph({
     heading: HeadingLevel.HEADING_1,
+    pageBreakBefore: !!o.pageBreakBefore,
     spacing: { before: 460, after: 300 },
     children: [new TextRun({ text, bold: true, size: 26, color: NAVY, font: "Arial" })]
   });
@@ -1950,6 +1960,10 @@ async function buildDocx() {
   });
 
   // ---- Cover page ----
+  /* Class A: same photo cover as the Review tab, in its own zero-margin section
+     (built below). Other reports keep the plain logo cover. */
+  const photoCover = tpl.id === "classA";
+  if (!photoCover) {
   if (logoBuf) {
     outer.push(new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -1972,6 +1986,7 @@ async function buildDocx() {
   outer.push(coverLine("Report Number", f.reportNo));
   outer.push(coverLine("Site Address", f.siteAddress));
   outer.push(new Paragraph({ children: [new PageBreak()] }));
+  }
 
   // ---- Generic body from template ----
   const border = { style: BorderStyle.SINGLE, size: 1, color: "9AA7B5" };
@@ -2009,7 +2024,8 @@ async function buildDocx() {
   const frameBorders = { top: frameLine, bottom: frameLine, left: frameLine, right: frameLine };
   const lightLine = { style: BorderStyle.SINGLE, size: 1, color: "9AA7B5" };
   const lightBorders = { top: lightLine, bottom: lightLine, left: lightLine, right: lightLine };
-  const framedSection = (title, body, light) => new Table({
+  // `cont` = continuation of a section onto a new page: body box only, no title bar.
+  const framedSection = (title, body, light, cont) => new Table({
     width: { size: FRAME_W, type: WidthType.DXA },
     columnWidths: [FRAME_W],
     /* Without this docx defaults the table grid to a thin black rule, which
@@ -2018,7 +2034,7 @@ async function buildDocx() {
       ? { ...lightBorders, insideHorizontal: lightLine, insideVertical: lightLine }
       : { ...frameBorders, insideHorizontal: frameLine, insideVertical: frameLine },
     rows: [
-      new TableRow({
+      ...(cont ? [] : [new TableRow({
         cantSplit: true,
         children: [new TableCell({
           borders: light ? lightBorders : frameBorders,
@@ -2030,7 +2046,7 @@ async function buildDocx() {
             children: [new TextRun({ text: title, bold: true, size: light ? 24 : 26, color: light ? NAVY : "FFFFFF", font: "Arial" })]
           })]
         })]
-      }),
+      })]),
       new TableRow({
         children: [new TableCell({
           borders: light ? lightBorders : frameBorders,
@@ -2050,15 +2066,22 @@ async function buildDocx() {
     const bodyW = framed ? FRAME_INNER_W : 9360;
     /* Collect this section's content separately so it can be dropped into a
        frame cell; unframed sections are appended straight to the document. */
-    const body = [];
+    let body = [];
     let children = framed ? body : outer;
     const tail = [];   // Class A: sign-off blocks drawn below the frame instead of inside it
-    if (framed) outer.push(new Paragraph({ children: [new PageBreak()] }));
+    /* A framed section can be cut into pieces that each start a new page (4.0 becomes
+       4.1/4.2, then the 4.2.x tables, then the separate 4.3 box), like the Review tab. */
+    const pieces = [];
+    const flushFrame = () => {
+      if (!body.length && pieces.length) return;
+      pieces.push({ kind: "frame", body, cont: pieces.some(p => p.kind === "frame") });
+      body = [];
+      children = body;
+    };
+    let boxOwnPage = false;
     // 2.0 Client Information starts a fresh page so it can sit with 3.0 Removal Information.
-    if (!framed && isBoxTpl() && FIT_PAGE_RE.test(sec.title) && !(sections[si - 1] && FIT_PAGE_RE.test(sections[si - 1].title))) {
-      children.push(new Paragraph({ children: [new PageBreak()] }));
-    }
-    if (!framed) children.push(H1(sec.title));
+    const breakBefore = !framed && isBoxTpl() && FIT_PAGE_RE.test(sec.title) && !(sections[si - 1] && FIT_PAGE_RE.test(sections[si - 1].title));
+    if (!framed) children.push(H1(sec.title, { pageBreakBefore: breakBefore }));
     if (si === 0 && tpl.cover.reportFields) {
       tpl.cover.reportFields.forEach(k => {
         const def = tpl.cover.fields.find(x => x.key === k);
@@ -2073,8 +2096,8 @@ async function buildDocx() {
       if (b.type === "sub") {
         const nx = secBlocks[bi + 1];
         if (nx && nx.type === "text" && isBoxedText(nx.key)) {
-          // 4.3 gets its own page, matching the Review preview.
-          if (b.toggle === "acmsRemaining") children.push(new Paragraph({ children: [new PageBreak()] }));
+          // 4.3 gets its own page as a separate box, matching the Review preview.
+          if (b.toggle === "acmsRemaining" && framed) { flushFrame(); boxOwnPage = true; }
           boxTitle = b.text;   // drawn as a filled title bar + bordered body with the text block below
         } else children.push(H2(b.text));
       }
@@ -2089,31 +2112,38 @@ async function buildDocx() {
       else if (b.type === "text" && isBoxedText(b.key) && boxTitle) {
         const edge = { style: BorderStyle.SINGLE, size: 1, color: "9AA7B5" };
         const edges = { top: edge, bottom: edge, left: edge, right: edge };
-        children.push(new Table({
-          width: { size: bodyW, type: WidthType.DXA },
-          columnWidths: [bodyW],
+        const boxW = boxOwnPage ? FRAME_W : bodyW;
+        const boxTable = new Table({
+          width: { size: boxW, type: WidthType.DXA },
+          columnWidths: [boxW],
           rows: [
             new TableRow({ cantSplit: true, children: [new TableCell({
-              borders: edges, width: { size: bodyW, type: WidthType.DXA },
+              borders: edges, width: { size: boxW, type: WidthType.DXA },
               shading: { fill: "EEF2FB", type: ShadingType.CLEAR, color: "auto" },
               margins: { top: 60, bottom: 60, left: 100, right: 100 },
               children: [new Paragraph({ children: [new TextRun({ text: boxTitle, bold: true, size: BODY, color: NAVY, font: "Arial" })] })]
             })] }),
             new TableRow({ children: [new TableCell({
-              borders: edges, width: { size: bodyW, type: WidthType.DXA },
+              borders: edges, width: { size: boxW, type: WidthType.DXA },
               margins: { top: 140, bottom: 140, left: 140, right: 140 },
               children: multi(f[b.key])
             })] })
           ]
-        }));
-        children.push(new Paragraph({ spacing: { after: 240 }, children: [] }));
+        });
+        if (boxOwnPage) {
+          pieces.push({ kind: "raw", nodes: [pageCarrier(), boxTable] });
+          boxOwnPage = false;
+        } else {
+          children.push(boxTable);
+          children.push(new Paragraph({ spacing: { after: 240 }, children: [] }));
+        }
         boxTitle = null;
       }
       else if (b.type === "text") children.push(...multi(f[b.key]));
       else if (b.type === "sigtext") children.push(sigRow(f[b.key]), new Paragraph({ spacing: { after: 180 }, children: [] }));
       else if (b.type === "table") {
         // Stage 1-4 checklists start on a fresh page so they stay together.
-        if (b.key === "t421") children.push(new Paragraph({ children: [new PageBreak()] }));
+        if (b.key === "t421" && framed) flushFrame();
         children.push(...checkTable(b, bodyW));
         children.push(new Paragraph({ spacing: { after: 240 }, children: [] }));
       }
@@ -2192,11 +2222,16 @@ async function buildDocx() {
     }
 
     if (framed) {
-      outer.push(framedSection(sec.title, body, (isBoxTpl() && !sec.isApp && BOXED_SECTION_RE.test(sec.title)) || (tpl.id === "classA" && sec.isApp)));
-      outer.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
-      outer.push(...tail);
+      flushFrame();
+      const light = (isBoxTpl() && !sec.isApp && BOXED_SECTION_RE.test(sec.title)) || (tpl.id === "classA" && sec.isApp);
+      pieces.forEach(pc => {
+        if (pc.kind === "raw") outer.push(...pc.nodes);
+        else outer.push(pageCarrier(), framedSection(sec.title, pc.body, light, pc.cont));
+      });
+      if (tail.length) outer.push(new Paragraph({ spacing: { after: 120 }, children: [] }), ...tail);
     }
   }
+  outer.push(new Paragraph({ children: [] }));   // a document must end with a paragraph, not a table
 
   // ---- Running header/footer ----
   const CONTENT_W = 11906 - 1300 - 1300;
@@ -2224,16 +2259,116 @@ async function buildDocx() {
     })]
   });
 
+  const bodySection = {
+    properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1500, right: 1300, bottom: 1400, left: 1300 } } },
+    headers: { default: pageHeader },
+    footers: { default: pageFooter },
+    children: outer
+  };
+  const docSections = photoCover ? [await photoCoverSection(), bodySection] : [bodySection];
+
   const doc = new Document({
     styles: { default: { document: { run: { font: "Arial", size: BODY } } } },
-    sections: [{
-      properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1500, right: 1300, bottom: 1400, left: 1300 } } },
-      headers: { default: pageHeader },
-      footers: { default: pageFooter },
-      children: outer
-    }]
+    sections: docSections
   });
   return Packer.toBlob(doc);
+}
+
+/* Class A Word cover, matching the Review cover: photo on top, blue banner with the
+   title, address, report number and work order number, and the assessor / email /
+   report number / date footer. Full page bleed, no running header or footer. */
+async function photoCoverSection() {
+  const { Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, BorderStyle, WidthType,
+          ShadingType, TabStopType, HeightRule, VerticalAlign } = docx;
+  const f = report.fields;
+  /* Rows total 15500 of the 16838 twips on the page. The spare ~1300 is deliberate: Word
+     reserves more bottom space than the margins say, and a tighter fit pushed the footer
+     row onto a second page. */
+  const W = 11906, IMG_H = 9800, BAND_H = 4400, FOOT_H = 1300, SIDE = 740, BLUE = "88B6E0";
+
+  // Crop the photo like the preview's "background-size: cover; center top".
+  const img = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error("cover photo could not be loaded"));
+    i.src = "cover-classA.jpg";
+  });
+  const cw = 1400, ch = Math.round(cw * IMG_H / W);
+  const cv = document.createElement("canvas");
+  cv.width = cw; cv.height = ch;
+  const scale = Math.max(cw / img.naturalWidth, ch / img.naturalHeight);
+  const sw = cw / scale, sh = ch / scale;
+  cv.getContext("2d").drawImage(img, (img.naturalWidth - sw) / 2, 0, sw, sh, 0, 0, cw, ch);
+  const photo = new Uint8Array(await (await new Promise(r => cv.toBlob(r, "image/jpeg", 0.85))).arrayBuffer());
+
+  const none = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+  const noBorders = { top: none, bottom: none, left: none, right: none };
+  const white = (text, o = {}) => new TextRun({ text, font: "Arial", color: "FFFFFF", ...o });
+  const innerW = W - 2 * SIDE;
+
+  const photoRow = new TableRow({
+    height: { value: IMG_H, rule: HeightRule.EXACT },
+    children: [new TableCell({
+      borders: noBorders, margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      width: { size: W, type: WidthType.DXA },
+      children: [new Paragraph({
+        spacing: { before: 0, after: 0 },
+        children: [new ImageRun({ type: "jpg", data: photo,
+          transformation: { width: Math.round(W / 15), height: Math.round(IMG_H / 15) },
+          altText: { title: "Cover photo", description: "Cover photo", name: "coverphoto" } })]
+      })]
+    })]
+  });
+
+  const bandRow = new TableRow({
+    height: { value: BAND_H, rule: HeightRule.EXACT },
+    children: [new TableCell({
+      borders: noBorders, verticalAlign: VerticalAlign.TOP,
+      shading: { fill: BLUE, type: ShadingType.CLEAR, color: "auto" },
+      margins: { top: 520, bottom: 0, left: SIDE + 240, right: SIDE },
+      width: { size: W, type: WidthType.DXA },
+      children: [
+        new Paragraph({ spacing: { before: 0, after: 160 }, children: [white(tpl.docTitle, { bold: true, size: 69 })] }),
+        new Paragraph({ spacing: { before: 0, after: 80 }, children: [white(f.siteAddress || "Insert Address", { size: 23 })] }),
+        new Paragraph({ spacing: { before: 0, after: 60 }, children: [white("Report Number: " + (f.reportNo || "Insert Report Number"), { size: 20 })] }),
+        new Paragraph({ spacing: { before: 0, after: 0 }, children: [white("Work Order Number: " + (f.workOrder || "Insert Work Order Number"), { size: 20 })] })
+      ]
+    })]
+  });
+
+  const footRow = new TableRow({
+    height: { value: FOOT_H, rule: HeightRule.EXACT },
+    children: [new TableCell({
+      borders: noBorders, verticalAlign: VerticalAlign.BOTTOM,
+      shading: { fill: BLUE, type: ShadingType.CLEAR, color: "auto" },
+      margins: { top: 0, bottom: 450, left: SIDE, right: SIDE },
+      width: { size: W, type: WidthType.DXA },
+      children: [
+        new Paragraph({ spacing: { before: 0, after: 140 }, children: [white(f.assessor || "", { bold: true, size: 18 })] }),
+        new Paragraph({
+          spacing: { before: 0, after: 0 },
+          tabStops: [{ type: TabStopType.CENTER, position: Math.round(innerW / 2) }, { type: TabStopType.RIGHT, position: innerW }],
+          border: { top: { style: BorderStyle.SINGLE, size: 4, color: "B8D3EC", space: 6 } },
+          children: [white(`${AIRSAFE_EMAIL}\t${f.reportNo || ""}\t${fmtDate(f.dateOfIssue) || ""}`, { size: 18 })]
+        })
+      ]
+    })]
+  });
+
+  return {
+    properties: { page: { size: { width: W, height: 16838 }, margin: { top: 0, right: 0, bottom: 0, left: 0, header: 0, footer: 0 } } },
+    children: [
+      new Table({
+        width: { size: W, type: WidthType.DXA },
+        columnWidths: [W],
+        indent: { size: 0, type: WidthType.DXA },
+        borders: { ...noBorders, insideHorizontal: none, insideVertical: none },
+        rows: [photoRow, bandRow, footRow]
+      }),
+      // Word needs a paragraph after a table; keep it too small to spill onto a new page.
+      new Paragraph({ spacing: { before: 0, after: 0, line: 20, lineRule: "exact" }, children: [new TextRun({ text: "", size: 2 })] })
+    ]
+  };
 }
 
 function dataUrlToBytes(dataUrl) {

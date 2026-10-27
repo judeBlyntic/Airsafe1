@@ -622,6 +622,7 @@ input:focus, select:focus, textarea:focus {
   margin: 0 0 10px;
 }
 .cover-photo-address { color: #fff; font-size: .95rem; opacity: .95; padding-left: 16px; }
+.cover-photo-meta { color: #fff; font-size: .8rem; opacity: .95; padding-left: 16px; margin-top: 5px; }
 .cover-photo .page-foot { border-top-color: rgba(255,255,255,.4); color: rgba(255,255,255,.85); }
 
 /* ---- Cover footer: assessor / report number / date of issue ---- */
