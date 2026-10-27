@@ -1555,6 +1555,8 @@ const BOXED_SECTION_RE = /VISUAL CLEARANCE INSPECTION|AIRBORNE FIBRE MONITORING|
 const BOXED_TEXT_KEYS = ["acmsRemaining", "scopeOfWorks", "areasInspected"];
 const FIT_PAGE_RE = /CLIENT INFORMATION|REMOVAL INFORMATION/;
 const isBoxTpl = () => tpl.id === "classA" || tpl.id === "classB";
+// Class A also boxes 1.2 Summary; Class B's summary stays plain.
+const isBoxedText = key => isBoxTpl() && (BOXED_TEXT_KEYS.includes(key) || (tpl.id === "classA" && key === "summary"));
 
 function rTable(block) {
   let h = `<h3>${esc(block.title)}</h3>`;
@@ -1591,7 +1593,7 @@ function buildReviewContent() {
       if (b.type === "table" && b.key === "t421" && !inFit) { html += `<div class="r-fitgroup">`; inFit = true; }
       if (inFit && b.type === "sub") { html += `</div>`; inFit = false; }
       const nx = blocks[bi + 1];
-      const boxHead = b.type === "sub" && isBoxTpl() && nx && nx.type === "text" && BOXED_TEXT_KEYS.includes(nx.key);
+      const boxHead = b.type === "sub" && nx && nx.type === "text" && isBoxedText(nx.key);
       if (b.type === "sub") html += `<h3${boxHead ? ` class="r-boxhead"` : ""}${b.toggle ? ` data-toggle="${esc(b.toggle)}"` : ""}>${esc(b.text)}</h3>`;
       else if (b.type === "field") html += rf(b.label, f[b.key]);
       else if (b.type === "fieldpair") {
@@ -1601,7 +1603,7 @@ function buildReviewContent() {
         });
         html += rf(b.labels.join(" / "), vals.filter(Boolean).join(" · "));
       }
-      else if (b.type === "text") html += `<div class="r-textblock${isBoxTpl() && BOXED_TEXT_KEYS.includes(b.key) ? " r-boxed" : ""}">${paras(f[b.key])}</div>`;
+      else if (b.type === "text") html += `<div class="r-textblock${isBoxedText(b.key) ? " r-boxed" : ""}">${paras(f[b.key])}</div>`;
       else if (b.type === "sigtext") {
         html += `<div class="r-sigrow"><div class="r-sigtext">${paras(f[b.key])}</div><img class="r-signature" src="signature.png" alt="Signature"></div>`;
       }
@@ -1698,6 +1700,7 @@ function renderReview() {
   const f = report.fields;
 
   doc.style.setProperty("--accent", tpl.accent);
+  doc.dataset.tpl = tpl.id;
   doc.innerHTML = `<div id="pagesWrap">${coverPageHtml(f)}</div>`;
 
   const wrap = doc.querySelector("#pagesWrap");
@@ -1713,7 +1716,7 @@ function renderReview() {
     queue.forEach(el => {
       if (el.tagName === "H2") {
         closeBox();
-        boxing = BOXED_SECTION_RE.test(el.textContent);
+        boxing = BOXED_SECTION_RE.test(el.textContent) || (tpl.id === "classA" && el.textContent.startsWith("APPENDIX"));
         if (boxing) el.classList.add("r-boxhead");
       } else if (boxing) {
         if (el.tagName === "H3" && el.hasAttribute("data-toggle")) { closeBox(); boxing = false; return; }
@@ -2069,7 +2072,7 @@ async function buildDocx() {
       if (framed && tpl.id === "classA" && b.type === "sub" && b.text.startsWith("Clearance Certificate Issued by")) children = tail;
       if (b.type === "sub") {
         const nx = secBlocks[bi + 1];
-        if (isBoxTpl() && nx && nx.type === "text" && BOXED_TEXT_KEYS.includes(nx.key)) {
+        if (nx && nx.type === "text" && isBoxedText(nx.key)) {
           // 4.3 gets its own page, matching the Review preview.
           if (b.toggle === "acmsRemaining") children.push(new Paragraph({ children: [new PageBreak()] }));
           boxTitle = b.text;   // drawn as a filled title bar + bordered body with the text block below
@@ -2083,7 +2086,7 @@ async function buildDocx() {
         });
         children.push(FIELD(b.labels.join(" / "), vals.filter(Boolean).join("  ·  ")));
       }
-      else if (b.type === "text" && BOXED_TEXT_KEYS.includes(b.key) && boxTitle) {
+      else if (b.type === "text" && isBoxedText(b.key) && boxTitle) {
         const edge = { style: BorderStyle.SINGLE, size: 1, color: "9AA7B5" };
         const edges = { top: edge, bottom: edge, left: edge, right: edge };
         children.push(new Table({
@@ -2189,7 +2192,7 @@ async function buildDocx() {
     }
 
     if (framed) {
-      outer.push(framedSection(sec.title, body, isBoxTpl() && !sec.isApp && BOXED_SECTION_RE.test(sec.title)));
+      outer.push(framedSection(sec.title, body, (isBoxTpl() && !sec.isApp && BOXED_SECTION_RE.test(sec.title)) || (tpl.id === "classA" && sec.isApp)));
       outer.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
       outer.push(...tail);
     }
@@ -2198,7 +2201,7 @@ async function buildDocx() {
   // ---- Running header/footer ----
   const CONTENT_W = 11906 - 1300 - 1300;
   const headerChildren = [
-    ...(logoBuf ? [new ImageRun({ type: "png", data: logoBuf, transformation: logoBox(96, 53),
+    ...(logoBuf ? [new ImageRun({ type: "png", data: logoBuf, transformation: tpl.id === "classA" ? logoBox(78, 44) : logoBox(96, 53),
       altText: { title: "AirSafe", description: "AirSafe logo", name: "headlogo" } })] : []),
     new TextRun({ text: "\tReport: " + (f.reportNo || ""), size: 16, color: NAVY, font: "Arial" })
   ];
@@ -2305,34 +2308,69 @@ document.getElementById("btnDownload").addEventListener("click", function () {
   });
 });
 
+/* Files attached under the appendices (PDF / Word / images), as File objects. */
+function attachedFiles() {
+  const out = [];
+  Object.values(report.attachments || {}).forEach(list => (list || []).forEach(a => {
+    const mime = (a.data.match(/^data:([^;,]+)/) || [])[1] || "application/octet-stream";
+    out.push(new File([dataUrlToBytes(a.data)], a.name, { type: mime }));
+  }));
+  return out;
+}
+
+function downloadFile(file) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/* Browsers only allow a burst of downloads if they are spaced out a little. */
+async function downloadAll(files) {
+  for (const f of files) { downloadFile(f); await new Promise(r => setTimeout(r, 400)); }
+}
+
+function updateAttachButton() {
+  const n = attachedFiles().length;
+  const btn = document.getElementById("btnDownloadAttach");
+  btn.hidden = n === 0;
+  btn.textContent = `📎 Download attached files only (${n})`;
+}
+
+document.getElementById("btnDownloadAttach").addEventListener("click", function () {
+  withBusy(this, async () => {
+    const files = attachedFiles();
+    await downloadAll(files);
+    sendStatus(`${files.length} attached file${files.length === 1 ? "" : "s"} downloaded — attach them to your email.`);
+  });
+});
+
 document.getElementById("btnShare").addEventListener("click", function () {
   withBusy(this, async () => {
     const blob = await buildDocx();
     const file = new File([blob], docxFileName(), {
       type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    const files = [file, ...attachedFiles()];
+    if (navigator.canShare && navigator.canShare({ files })) {
       await navigator.share({
-        files: [file],
+        files,
         title: document.getElementById("emailSubject").value,
         text: document.getElementById("emailBody").value
       }).catch(err => { if (err.name !== "AbortError") throw err; });
-      sendStatus("Share sheet opened — choose your email app to send with the attachment.");
+      sendStatus(`Share sheet opened — choose your email app to send with the report${files.length > 1 ? " and " + (files.length - 1) + " attached file(s)" : ""}.`);
     } else {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = docxFileName();
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      await downloadAll(files);
       openMailto();
-      sendStatus("Sharing with attachments isn’t supported in this browser, so the Word file was downloaded and your email app was opened — just attach the downloaded file.");
+      sendStatus(`Sharing with attachments isn’t supported in this browser, so the Word file${files.length > 1 ? " and attached files were" : " was"} downloaded and your email app was opened — just attach ${files.length > 1 ? "them" : "the downloaded file"}.`);
     }
   });
 });
 
 document.getElementById("btnMailto").addEventListener("click", () => {
   openMailto();
-  sendStatus("Email app opened. Remember to attach the downloaded Word file.");
+  sendStatus("Email app opened. Remember to attach the downloaded Word file and any attached files.");
 });
 
 function openMailto() {
@@ -2350,7 +2388,7 @@ document.querySelectorAll(".tab").forEach(tab => {
     const which = tab.dataset.tab;
     showView(which);
     if (which === "review") renderReview();
-    if (which === "send") defaultEmailFields();
+    if (which === "send") { defaultEmailFields(); updateAttachButton(); }
   });
 });
 

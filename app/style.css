@@ -552,6 +552,7 @@ input:focus, select:focus, textarea:focus {
   margin-bottom: 14px;
 }
 .page-head img { height: 36px; }
+.review-doc[data-tpl="classA"] .page-head img { height: 28px; width: auto; flex: none; object-fit: contain; aspect-ratio: 270 / 175; }
 .head-report { font-size: 8pt; font-weight: 700; color: var(--navy); }
 
 .page-foot {
@@ -743,6 +744,11 @@ input:focus, select:focus, textarea:focus {
   margin: 0;
   padding: 8px 0;
 }
+/* Appendix photos inside the section box: keep side borders unbroken */
+.review-doc .r-photo-entry.r-in { margin: 0; padding: 9px 10px; }
+.body-content.justified-photos .r-photo-entry.r-in { padding: 8px 10px; }
+.review-doc p.r-in { padding-top: 12px; padding-bottom: 12px; }
+.review-doc .r-attach-entry.r-in { padding-top: 6px; padding-bottom: 6px; }
 .review-doc .r-photo-img-wrap {
   flex: 0 0 45%;
   max-width: 45%;
