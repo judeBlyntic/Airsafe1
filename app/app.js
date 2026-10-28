@@ -825,6 +825,7 @@ function getOriginalSectionIndex(sec) {
     const char = sec.id.slice(-1);
     return char.charCodeAt(0) - 64;
   }
+  if (sec.origIdx) return sec.origIdx;   // un-numbered heading whose items are still numbered (Class A 1.x)
   const match = sec.title.match(/^(\d+)/);
   if (match) {
     return parseInt(match[1], 10);
@@ -1545,11 +1546,11 @@ function rf(label, value) {
   return `<div class="r-field"><b>${esc(label)}:</b> ${orEmpty(value)}</div>`;
 }
 function paras(text) {
-  /* Class A: the Word file writes one paragraph per line (an empty paragraph for a
-     blank line), so the Review does the same to get the same spacing and page breaks. */
+  /* Class A: one paragraph per line, like the Word file. Blank lines are dropped (spacing
+     comes from the paragraph settings, not empty lines); bullets get the tighter spacing. */
   if (tpl && tpl.id === "classA") {
-    return String(text || "").split(/\r?\n/)
-      .map(l => l.trim() === "" ? `<p class="r-blank"></p>` : `<p>${esc(l)}</p>`).join("");
+    return String(text || "").split(/\r?\n/).filter(l => l.trim() !== "")
+      .map(l => `<p${l.trim().startsWith("•") ? ` class="r-bullet"` : ""}>${esc(l)}</p>`).join("");
   }
   const t = String(text || "").trim();
   if (!t) return `<p>${orEmpty("")}</p>`;
@@ -1582,10 +1583,16 @@ function buildReviewContent() {
   let html = "";
   const sections = getRenumberedSections();
   let fitPageOpen = false;
+  const modelA = tpl.id === "classA" ? buildModelA() : null;
   sections.forEach((sec, si) => {
+    if (modelA && !sec.isApp) { html += caSectionHtml(modelA.find(m => m.id === sec.id)); return; }
     // 2.0 Client Information + 3.0 Removal Information share one shrink-to-fit page.
     if (isBoxTpl() && FIT_PAGE_RE.test(sec.title) && !fitPageOpen) { html += `<div class="r-fitgroup">`; fitPageOpen = true; }
-    html += `<h2 data-secid="${esc(sec.id)}">${esc(sec.title)}</h2>`;
+    // Class A appendix: "APPENDIX A" on one line, the title (not bold) underneath.
+    const appParts = tpl.id === "classA" && /^APPENDIX/.test(sec.title) ? sec.title.split(/\s+[–—-]\s+/) : [];
+    html += appParts.length > 1
+      ? `<div class="ca-app" data-newpage="1" data-kwn="1"><b>${esc(appParts[0])}</b><b>${esc(appParts.slice(1).join(" – "))}</b></div>`
+      : `<h2 data-secid="${esc(sec.id)}">${esc(sec.title)}</h2>`;
     if (si === 0 && tpl.cover.reportFields) {
       tpl.cover.reportFields.forEach(k => {
         const def = tpl.cover.fields.find(x => x.key === k);
@@ -1663,6 +1670,145 @@ function buildReviewContent() {
   return html;
 }
 
+/* ================= Class A layout =================
+   One model drives both the Review and the Word export: a heading bar, then boxes made of
+   rows. A row is never split across pages, and a row marked `keep` stays on the same page
+   as the row after it (title with its first lines, a stage heading with its table). */
+const CA_VALUE_TEXT_KEYS = ["removalLocation"];   // 3.5: the text field is the row's value
+const caNum = s => { const m = String(s || "").match(/^(\d+(?:\.\d+)*)\.?\s+(.*)$/); return m ? [m[1], m[2]] : ["", String(s || "")]; };
+const caLines = t => String(t || "").split(/\r?\n/).filter(l => l.trim() !== "");
+function fmtTime12(t) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(t || "");
+  if (!m) return t || "";
+  const h = +m[1];
+  return `${h % 12 || 12}:${m[2]}${h >= 12 ? "pm" : "am"}`;
+}
+
+function buildModelA() {
+  const f = report.fields;
+  return getRenumberedSections().map((sec, si) => {
+    const S = { id: sec.id, title: sec.title, isApp: sec.isApp, sec, items: [] };
+    if (sec.isApp) return S;
+    const single = sec.secNo <= 3;                 // 1.0, 2.0 and 3.0 are each one continuous box
+    let box = null, nextPage = false, tail = false;
+    const open = grid => {
+      if (!box || box.grid !== grid) { box = { type: "box", grid, rows: [], page: nextPage }; nextPage = false; S.items.push(box); }
+      return box.rows;
+    };
+    if (si === 0 && tpl.cover.reportFields) {
+      const [a, b] = tpl.cover.reportFields.map(k => ({ label: tpl.cover.fields.find(x => x.key === k).label, value: fieldDisplay(k) }));
+      open("n").push({ k: "date", l: a.label, lv: a.value, r: b.label, rv: b.value });
+    }
+    const blocks = outputBlocks(sec);
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i], nx = blocks[i + 1];
+      if (tail || (b.type === "sub" && b.text.startsWith("Clearance Certificate Issued by"))) {
+        tail = true; box = null;     // assessor sign-off sits below the 7.0 box
+        S.items.push(b.type === "sub" ? { type: "sigh", text: b.text } : { type: "sig", text: f[b.key] || "" });
+        continue;
+      }
+      if (b.type === "sub") {
+        const [num, title] = caNum(b.text);
+        if (nx && nx.type === "fieldpair") {          // 3.1 date and time on one line
+          open("n").push({ k: "n", num, label: title, value: [fmtDate(f[nx.keys[0]]), fmtTime12(f[nx.keys[1]])].filter(Boolean).join(", ") });
+          i++;
+        } else if (nx && nx.type === "text" && CA_VALUE_TEXT_KEYS.includes(nx.key)) {
+          open("n").push({ k: "n", num, label: title, value: f[nx.key] || "" });
+          i++;
+        } else {
+          if (b.toggle === "acmsRemaining") { box = null; nextPage = true; }   // 4.3 stands on its own page
+          else if (!single) box = null;                                          // 4.x onwards: one box per sub-item
+          open("n").push({ k: "bar", num, title });
+          if (nx && nx.type === "text" && !caLines(f[nx.key]).length) open("n").push({ k: "p", text: "" });
+        }
+      }
+      else if (b.type === "field") { const [num, label] = caNum(b.label); open("n").push({ k: "n", num, label, value: f[b.key] || "" }); }
+      else if (b.type === "text") open(b.key === "stage3Note" ? "s" : "n").push(...caLines(f[b.key]).map(text => ({ k: "p", text })));
+      else if (b.type === "table") {                  // 4.2.1-4.2.4 share one continuous box
+        const rows = open("s"), [num, title] = caNum(b.title);
+        rows.push({ k: "bar", num, title });
+        if (b.caption) rows.push({ k: "p", text: b.caption });
+        rows.push({ k: "th", cols: [b.itemHeader || "Item", b.verHeader || "Verified", "Comments"] });
+        b.items.forEach((item, j) => {
+          const r = (report.tables[b.key] || [])[j] || {};
+          rows.push({ k: "tr", cells: [item, getVerifiedText(r.verified), r.comments || ""] });
+        });
+      }
+    }
+    S.items.forEach(it => {
+      if (it.type !== "box") return;
+      it.rows.forEach((r, i, rows) => {
+        const next = rows[i + 1];
+        if (r.k === "bar" || r.k === "date" || r.k === "th") r.keep = true;
+        if (r.k === "p" && next && next.k === "th") r.keep = true;            // caption stays with its table
+        if (r.k === "tr" && next && next.k === "tr") r.keep = true;           // a table stays whole
+        if (r.k === "p" && next && next.k === "p" && !(rows[i + 2] && rows[i + 2].k === "p")) r.keep = true;   // never leave one paragraph alone at the end
+      });
+    });
+    return S;
+  });
+}
+
+let caBoxSeq = 0;
+function caRowHtml(r, grid, bx) {
+  const at = ` data-box="${bx}"${r.keep ? ` data-kwn="1"` : ""}`;
+  const lines = t => caLines(t).map(l => `<p>${esc(l)}</p>`).join("");
+  switch (r.k) {
+    case "date": return `<div class="ca-row ca-date g-n"${at}><div class="c-ld"><b>${esc(r.l)}:</b> ${esc(r.lv)}</div><div class="c-rv"><b>${esc(r.r)}:</b> ${esc(r.rv)}</div></div>`;
+    case "n": return `<div class="ca-row ca-nr g-n"${at}><span class="c-num">${esc(r.num)}</span><b class="c-lab">${esc(r.label)}</b><div class="c-val">${lines(r.value)}</div></div>`;
+    case "bar": return `<div class="ca-row ca-sb g-${grid}"${at}><span class="c-num">${esc(r.num)}</span><b class="c-tit">${esc(r.title)}</b></div>`;
+    case "p": return `<div class="ca-row ca-p"${at}><p${r.text.trim().startsWith("•") ? ` class="r-bullet"` : ""}>${r.text ? esc(r.text) : "&nbsp;"}</p></div>`;
+    case "th": return `<div class="ca-row ca-th g-s"${at}><b class="c-item">${esc(r.cols[0])}</b><b>${esc(r.cols[1])}</b><b>${esc(r.cols[2])}</b></div>`;
+    default: return `<div class="ca-row ca-tr g-s"${at}><span class="c-item">${esc(r.cells[0])}</span><span${r.cells[1] === "Yes" ? ` class="ca-yes"` : ""}>${esc(r.cells[1])}</span><span>${esc(r.cells[2])}</span></div>`;
+  }
+}
+function caSectionHtml(S) {
+  let h = `<div class="ca-bar" data-newpage="1" data-kwn="1">${esc(S.title)}</div>`;
+  S.items.forEach((it, i) => {
+    if (it.type === "box") {
+      const bx = "b" + (++caBoxSeq);
+      h += `<div class="ca-gap${i ? " ca-gap2" : ""}"${i ? "" : ` data-kwn="1"`}${it.page ? ` data-newpage="1"` : ""}></div>`;
+      h += it.rows.map(r => caRowHtml(r, it.grid, bx)).join("");
+    }
+    else if (it.type === "sigh") h += `<h3 class="ca-sigh" data-kwn="1">${esc(it.text)}</h3>`;
+    else h += `<div class="r-sigrow"><div class="r-sigtext">${paras(it.text)}</div><img class="r-signature" src="signature.png" alt="Signature"></div>`;
+  });
+  return h;
+}
+
+/* Fills A4 pages row by row. A row that overflows moves to the next page together with the
+   rows before it that are marked keep-with-next; a box is closed (bottom edge) at the end of a
+   page and re-opened (top edge) on the next one. */
+function paginateA(queue, wrap, f) {
+  const pages = [];
+  const addPage = () => { const p = newBodyPage(wrap, f); pages.push(p); return p; };
+  let cur = addPage();
+  queue.forEach(el => {
+    if (el.dataset.newpage && cur.content.children.length) cur = addPage();
+    if (el.classList.contains("ca-gap") && !cur.content.children.length) return;   // no gap at the top of a page
+    cur.content.appendChild(el);
+    if (cur.content.scrollHeight <= cur.content.clientHeight) return;
+    let start = el;
+    while (start.previousElementSibling && start.previousElementSibling.dataset.kwn) start = start.previousElementSibling;
+    if (start === cur.content.firstElementChild) return;   // already at the top of a page: nothing to gain by moving it
+    const moved = [];
+    for (let n = start; n; n = n.nextElementSibling) moved.push(n);
+    cur = addPage();
+    moved.forEach(n => cur.content.appendChild(n));
+    if (cur.content.firstElementChild.classList.contains("ca-gap")) cur.content.firstElementChild.remove();
+  });
+  pages.forEach(p => {
+    const kids = Array.from(p.content.children);
+    kids.forEach((k, i) => {
+      const bx = k.dataset.box;
+      if (!bx) return;
+      if (!kids[i - 1] || kids[i - 1].dataset.box !== bx) k.classList.add("ca-top");
+      if (!kids[i + 1] || kids[i + 1].dataset.box !== bx) k.classList.add("ca-bottom");
+    });
+  });
+  return pages;
+}
+
 function newBodyPage(wrap, f) {
   const page = document.createElement("div");
   page.className = "a4 body-page";
@@ -1728,6 +1874,16 @@ function renderReview() {
   const temp = document.createElement("div");
   temp.innerHTML = buildReviewContent();
   const queue = Array.from(temp.children);
+
+  if (tpl.id === "classA") {
+    const pagesA = paginateA(queue, wrap, f);
+    const totalA = pagesA.length + 1;
+    const coverA = doc.querySelector(".cover-page .page-foot span");
+    if (coverA) coverA.textContent = `Page 1 of ${totalA}`;
+    pagesA.forEach((p, i) => { p.foot.textContent = `Page ${i + 2} of ${totalA}`; });
+    fitReviewScale();
+    return;
+  }
 
   // Boxed sections: h2 becomes the filled title bar, every block after it gets side
   // borders and the last one the bottom border. 4.3 (data-toggle) starts its own box.
@@ -1904,6 +2060,9 @@ window.addEventListener("resize", () => {
 
 /* ================= DOCX export ================= */
 
+/* Class A uses the original Word template's font; the other reports keep Arial. */
+const docFont = () => (tpl.id === "classA" ? "Calibri" : "Arial");
+
 async function buildDocx() {
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
           ImageRun, AlignmentType, BorderStyle, WidthType, ShadingType, HeadingLevel,
@@ -1911,27 +2070,37 @@ async function buildDocx() {
 
   const f = report.fields;
   const NAVY = "1B1B6F";
-  const BODY = 18; // 9pt (half-points)
+  /* Class A follows the original Word template: Calibri 11pt body, 12pt section headings,
+     11pt sub-headings, line spacing 1.15, 6pt after paragraphs, 3pt between bullets,
+     headings 12pt before / 6pt after, no empty paragraphs used as spacing. */
+  const A = tpl.id === "classA";
+  const BODY = A ? 22 : 18; // half-points
+  const INK = A ? "000000" : NAVY;   // Class A uses only the cover colours: baby blue, white, black
+  const LINE = A ? { line: 276 } : {};
   const outer = [];
 
   /* Compact mode (8pt type, tighter spacing) is used for the two areas that must fit one
-     page: 2.0 + 3.0 and the 4.2.x tables. The Review uses the same values. */
+     page: 2.0 + 3.0 and the 4.2.x tables. The Review uses the same values. Not used by Class A. */
   let compact = false;
   const FS = () => (compact ? 16 : BODY);
   const sp = (full, small) => (compact ? small : full);
 
   const P = (text, opts = {}) => new Paragraph({
-    spacing: { after: sp(300, 120) },
+    spacing: { after: A ? 120 : sp(300, 120), ...LINE },
     alignment: opts.center ? AlignmentType.CENTER : AlignmentType.LEFT,
-    children: [new TextRun({ text, bold: !!opts.bold, size: opts.size || FS(), color: opts.color, font: "Arial" })]
+    children: [new TextRun({ text, bold: !!opts.bold, size: opts.size || FS(), color: opts.color, font: docFont() })]
   });
-  const multi = (text) => String(text || "").split(/\r?\n/).map(line =>
-    new Paragraph({
-      spacing: { after: line.trim() === "" ? sp(150, 40) : sp(250, 80) },
-      run: { size: FS() },
-      children: [new TextRun({ text: line, size: FS(), font: "Arial" })]
-    })
-  );
+  const multi = (text) => {
+    const lines = String(text || "").split(/\r?\n/).filter(line => !A || line.trim() !== "");
+    const out = lines.map(line =>
+      new Paragraph({
+        spacing: { after: A ? (line.trim().startsWith("•") ? 60 : 120) : (line.trim() === "" ? sp(150, 40) : sp(250, 80)), ...LINE },
+        run: { size: FS() },
+        children: [new TextRun({ text: line, size: FS(), font: docFont() })]
+      })
+    );
+    return out.length ? out : [new Paragraph({ children: [] })];   // a table cell needs a paragraph
+  };
   /* A page break done as a paragraph setting ("page break before") never leaves a
      blank page behind, unlike a separate paragraph holding a break character. */
   const pageCarrier = () => new Paragraph({
@@ -1942,20 +2111,20 @@ async function buildDocx() {
   const H1 = (text, o = {}) => new Paragraph({
     heading: HeadingLevel.HEADING_1,
     pageBreakBefore: !!o.pageBreakBefore,
-    spacing: { before: sp(460, 200), after: sp(300, 120) },
-    children: [new TextRun({ text, bold: true, size: sp(26, 22), color: NAVY, font: "Arial" })]
+    spacing: { before: A ? 240 : sp(460, 200), after: A ? 120 : sp(300, 120), ...LINE },
+    children: [new TextRun({ text, bold: true, size: A ? 24 : sp(26, 22), color: NAVY, font: docFont() })]
   });
   const H2 = (text) => new Paragraph({
     heading: HeadingLevel.HEADING_2,
-    spacing: { before: sp(380, 160), after: sp(240, 80) },
-    children: [new TextRun({ text, bold: true, size: sp(23, 20), color: NAVY, font: "Arial" })]
+    spacing: { before: A ? 240 : sp(380, 160), after: A ? 120 : sp(240, 80), ...LINE },
+    children: [new TextRun({ text, bold: true, size: A ? 22 : sp(23, 20), color: INK, font: docFont() })]
   });
   const FIELD = (label, value) => new Paragraph({
-    spacing: { after: sp(240, 80) },
+    spacing: { after: A ? 120 : sp(240, 80), ...LINE },
     run: { size: FS() },
     children: [
-      new TextRun({ text: label + ":  ", bold: true, size: FS(), color: NAVY, font: "Arial" }),
-      new TextRun({ text: value || "", size: FS(), font: "Arial" })
+      new TextRun({ text: label + ":  ", bold: true, size: FS(), color: NAVY, font: docFont() }),
+      new TextRun({ text: value || "", size: FS(), font: docFont() })
     ]
   });
 
@@ -1984,7 +2153,7 @@ async function buildDocx() {
         borders: noBorders, width: { size: 6160, type: WidthType.DXA },
         children: String(text || "").split(/\r?\n/).map(line => new Paragraph({
           spacing: { after: 150 },
-          children: [new TextRun({ text: line, size: BODY, font: "Arial" })]
+          children: [new TextRun({ text: line, size: BODY, font: docFont() })]
         }))
       }),
       new TableCell({
@@ -2018,8 +2187,8 @@ async function buildDocx() {
     alignment: AlignmentType.CENTER,
     spacing: { after: 140 },
     children: [
-      new TextRun({ text: label + ": ", bold: true, size: 22, color: NAVY, font: "Arial" }),
-      new TextRun({ text: value || "", size: 22, font: "Arial" })
+      new TextRun({ text: label + ": ", bold: true, size: 22, color: NAVY, font: docFont() }),
+      new TextRun({ text: value || "", size: 22, font: docFont() })
     ]
   });
   outer.push(new Paragraph({ spacing: { after: 300 }, children: [] }));
@@ -2036,7 +2205,7 @@ async function buildDocx() {
   const mkCell = (text, width, opts = {}) => new TableCell({
     borders, width: { size: width, type: WidthType.DXA }, margins: cellMargins(),
     shading: opts.head ? { fill: "EEF2FB", type: ShadingType.CLEAR } : undefined,
-    children: [new Paragraph({ run: { size: FS() }, children: [new TextRun({ text, bold: !!opts.head, size: FS(), color: opts.head ? NAVY : undefined, font: "Arial" })] })]
+    children: [new Paragraph({ spacing: { before: 0, after: 0, ...LINE }, run: { size: FS() }, children: [new TextRun({ text, bold: !!opts.head, size: FS(), color: opts.head ? NAVY : undefined, font: docFont() })] })]
   });
   const checkTable = (block, tableW = 9360) => {
     const c0 = Math.round(tableW * 0.4487), c1 = Math.round(tableW * 0.1496);
@@ -2082,10 +2251,16 @@ async function buildDocx() {
           shading: { fill: light ? "EEF2FB" : NAVY, type: ShadingType.CLEAR, color: "auto" },
           margins: light ? { top: 80, bottom: 80, left: 140, right: 140 } : { top: 130, bottom: 130, left: 170, right: 170 },
           width: { size: FRAME_W, type: WidthType.DXA },
-          children: [new Paragraph({
-            spacing: { before: 0, after: 0 },
-            children: [new TextRun({ text: title, bold: true, size: light ? 24 : 26, color: light ? NAVY : "FFFFFF", font: "Arial" })]
-          })]
+          children: (A && /^APPENDIX/.test(title))
+            // Class A appendix: "APPENDIX A" 20pt bold, the title underneath 20pt not bold.
+            ? (([head, ...rest]) => [
+                new Paragraph({ spacing: { before: 0, after: 0, ...LINE }, children: [new TextRun({ text: head, bold: true, size: 40, color: NAVY, font: docFont() })] }),
+                new Paragraph({ spacing: { before: 0, after: 0, ...LINE }, children: [new TextRun({ text: rest.join(" – "), size: 40, color: NAVY, font: docFont() })] })
+              ])(title.split(/\s+[–—-]\s+/))
+            : [new Paragraph({
+                spacing: { before: 0, after: 0, ...LINE },
+                children: [new TextRun({ text: title, bold: true, size: light ? 24 : 26, color: light ? NAVY : "FFFFFF", font: docFont() })]
+              })]
         })]
       })]),
       new TableRow({
@@ -2099,13 +2274,108 @@ async function buildDocx() {
     ]
   });
 
+  /* ---- Class A: heading bar + boxes, built from the same model as the Review ----
+     Rows are cantSplit and chained with keepNext so a box never breaks mid-row and a title
+     stays with its first lines. Colours: #88B6E0 heading bar / box edge, #CFE2F3 sub-item
+     bars and table headers, #C9DDF2 thin row lines, #E2F0D9 for "Yes"; all text black. */
+  const CA = { blue: "88B6E0", pale: "CFE2F3", line: "C9DDF2", green: "E2F0D9" };
+  const caBox = { style: BorderStyle.SINGLE, size: 8, color: CA.blue };
+  const caThin = { style: BorderStyle.SINGLE, size: 4, color: CA.line };
+  const caNone = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+  const CA_W = 9306, CA_N = [794, 4300, 4212], CA_S = [794, 3500, 1400, 3612];   // 794 twips = 1.4cm number column
+  const caRun = (text, bold, size = 22, color = "000000") => new TextRun({ text, bold: !!bold, size, color, font: "Calibri" });
+  const caPara = (children, keep, after = 0) => new Paragraph({ keepNext: !!keep, spacing: { before: 0, after, line: 276 }, children });
+  const caSpacer = (twips, keep) => new Paragraph({
+    keepNext: !!keep, spacing: { before: 0, after: 0, line: twips, lineRule: "exact" }, children: [new TextRun({ text: "", size: 2 })]
+  });
+  const caTableOpts = (widths) => ({
+    width: { size: CA_W, type: WidthType.DXA }, columnWidths: widths,
+    layout: docx.TableLayoutType ? docx.TableLayoutType.FIXED : undefined,
+    borders: { top: caNone, bottom: caNone, left: caNone, right: caNone, insideHorizontal: caNone, insideVertical: caNone }
+  });
+  const caCell = (children, width, o) => new TableCell({
+    width: { size: width, type: WidthType.DXA }, columnSpan: o.span,
+    shading: o.fill ? { fill: o.fill, type: ShadingType.CLEAR, color: "auto" } : undefined,
+    margins: { top: 60, bottom: 60, left: 100, right: 100 },
+    borders: { top: o.top, bottom: o.bottom, left: o.left, right: o.right },
+    children
+  });
+  const caRow = (r, grid, top, bottom) => {
+    const W = grid === "s" ? CA_S : CA_N, keep = r.keep;
+    const one = (s, bold) => [caPara([caRun(s, bold)], keep)];
+    let cells;
+    if (r.k === "date") cells = [
+      { paras: [caPara([caRun(r.l + ": ", true), caRun(r.lv)], keep)], width: W[0] + W[1], span: 2 },
+      { paras: [caPara([caRun(r.r + ": ", true), caRun(r.rv)], keep)], width: W[2] }];
+    else if (r.k === "n") cells = [
+      { paras: one(r.num), width: W[0] },
+      { paras: one(r.label, true), width: W[1] },
+      { paras: (caLines(r.value).length ? caLines(r.value) : [""]).map(l => caPara([caRun(l)], keep)), width: W[2] }];
+    else if (r.k === "bar") cells = [
+      { paras: one(r.num, true), width: W[0], fill: CA.pale },
+      { paras: one(r.title, true), width: CA_W - W[0], span: W.length - 1, fill: CA.pale }];
+    else if (r.k === "p") cells = [{ paras: [caPara([caRun(r.text)], keep, r.text.trim().startsWith("•") ? 60 : 120)], width: CA_W, span: W.length }];
+    else {
+      const head = r.k === "th", v = head ? r.cols : r.cells;
+      cells = [
+        { paras: one(v[0], head), width: W[0] + W[1], span: 2, fill: head ? CA.pale : undefined },
+        { paras: one(v[1], head), width: W[2], fill: head ? CA.pale : (v[1] === "Yes" ? CA.green : undefined) },
+        { paras: one(v[2], head), width: W[3], fill: head ? CA.pale : undefined }];
+    }
+    const vlines = grid === "s" && (r.k === "th" || r.k === "tr");
+    return new TableRow({ cantSplit: true, children: cells.map((c, ci) => caCell(c.paras, c.width, {
+      span: c.span, fill: c.fill, top, bottom,
+      left: ci === 0 ? caBox : (vlines ? caThin : caNone),
+      right: ci === cells.length - 1 ? caBox : (vlines ? caThin : caNone)
+    })) });
+  };
+  const caBoxTable = (box) => {
+    // a thin line above number rows and table rows; none above title bars or paragraph rows
+    const tops = box.rows.map((r, i) => i === 0 ? caBox : (r.k === "n" || r.k === "tr" || r.k === "th" ? caThin : caNone));
+    return new Table({
+      ...caTableOpts(box.grid === "s" ? CA_S : CA_N),
+      rows: box.rows.map((r, i) => caRow(r, box.grid, tops[i], i === box.rows.length - 1 ? caBox : tops[i + 1]))
+    });
+  };
+  const caHeadBar = (title) => new Table({
+    ...caTableOpts([CA_W]),
+    rows: [new TableRow({ cantSplit: true, children: [new TableCell({
+      width: { size: CA_W, type: WidthType.DXA },
+      shading: { fill: CA.blue, type: ShadingType.CLEAR, color: "auto" },
+      margins: { top: 80, bottom: 80, left: 100, right: 100 },
+      borders: { top: caBox, bottom: caBox, left: caBox, right: caBox },
+      children: [caPara([caRun(title, true, 24, "FFFFFF")], true)]
+    })] })]
+  });
+  const caSection = (S, first) => {
+    const out = first ? [] : [pageCarrier()];          // every main section starts a new page
+    out.push(caHeadBar(S.title), caSpacer(120, true));  // 6pt between the bar and the first box
+    S.items.forEach((it, i) => {
+      if (it.type === "box") {
+        if (i) out.push(it.page ? pageCarrier() : caSpacer(240, false));
+        out.push(caBoxTable(it));
+      }
+      else if (it.type === "sigh") out.push(new Paragraph({ keepNext: true, spacing: { before: 240, after: 120, line: 276 }, children: [caRun(it.text, true)] }));
+      else out.push(sigRow(it.text), new Paragraph({ spacing: { after: 180 }, children: [] }));
+    });
+    return out;
+  };
+  const caAppTitle = (title) => {
+    const [head, ...rest] = title.split(/\s+[–—-]\s+/);
+    return [pageCarrier(), ...[head, rest.join(" – ")].map((t, i) => new Paragraph({
+      keepNext: true, spacing: { before: 0, after: i ? 240 : 0, line: 276 }, children: [caRun(t, true, 40)]
+    }))];
+  };
+  const modelA = A ? buildModelA() : null;
+
   const sections = getRenumberedSections();
   for (let si = 0; si < sections.length; si++) {
     const sec = sections[si];
+    if (A && !sec.isApp) { outer.push(...caSection(modelA.find(m => m.id === sec.id), si === 0)); continue; }
     /* Section 4 onwards, plus every appendix, is framed and starts a new page. */
     const framed = sec.isApp || sec.secNo >= 4;
     const bodyW = framed ? FRAME_INNER_W : 9360;
-    compact = !framed && isBoxTpl() && FIT_PAGE_RE.test(sec.title);
+    compact = !framed && !A && isBoxTpl() && FIT_PAGE_RE.test(sec.title);
     /* Collect this section's content separately so it can be dropped into a
        frame cell; unframed sections are appended straight to the document. */
     let body = [];
@@ -2163,7 +2433,7 @@ async function buildDocx() {
               borders: edges, width: { size: boxW, type: WidthType.DXA },
               shading: { fill: "EEF2FB", type: ShadingType.CLEAR, color: "auto" },
               margins: cellMargins(),
-              children: [new Paragraph({ run: { size: FS() }, children: [new TextRun({ text: boxTitle, bold: true, size: FS(), color: NAVY, font: "Arial" })] })]
+              children: [new Paragraph({ spacing: { before: 0, after: 0, ...LINE }, run: { size: FS() }, children: [new TextRun({ text: boxTitle, bold: true, size: FS(), color: NAVY, font: docFont() })] })]
             })] }),
             new TableRow({ children: [new TableCell({
               borders: edges, width: { size: boxW, type: WidthType.DXA },
@@ -2177,7 +2447,7 @@ async function buildDocx() {
           boxOwnPage = false;
         } else {
           children.push(boxTable);
-          children.push(new Paragraph({ spacing: { after: sp(240, 60) }, run: { size: FS() }, children: [] }));
+          children.push(new Paragraph({ spacing: { after: A ? 120 : sp(240, 60) }, run: { size: FS() }, children: [] }));
         }
         boxTitle = null;
       }
@@ -2185,9 +2455,9 @@ async function buildDocx() {
       else if (b.type === "sigtext") children.push(sigRow(f[b.key]), new Paragraph({ spacing: { after: 180 }, children: [] }));
       else if (b.type === "table") {
         // Stage 1-4 checklists start on a fresh page so they stay together.
-        if (b.key === "t421" && framed) { flushFrame(); compact = isBoxTpl(); }
+        if (b.key === "t421" && framed) { flushFrame(); compact = isBoxTpl() && !A; }
         children.push(...checkTable(b, bodyW));
-        children.push(new Paragraph({ spacing: { after: sp(240, 60) }, run: { size: FS() }, children: [] }));
+        children.push(new Paragraph({ spacing: { after: A ? 120 : sp(240, 60) }, run: { size: FS() }, children: [] }));
       }
     }
     if (sec.photos) {
@@ -2212,8 +2482,8 @@ async function buildDocx() {
             alignment: AlignmentType.CENTER,
             spacing: { after: 360 },
             children: [
-              new TextRun({ text: `Photo ${i + 1}: `, bold: true, size: BODY, color: NAVY, font: "Arial" }),
-              new TextRun({ text: p.comment || "", size: BODY, font: "Arial" })
+              new TextRun({ text: `Photo ${i + 1}: `, bold: true, size: BODY, color: INK, font: docFont() }),
+              new TextRun({ text: p.comment || "", size: BODY, font: docFont() })
             ]
           }));
         }
@@ -2242,8 +2512,8 @@ async function buildDocx() {
               alignment: AlignmentType.CENTER,
               spacing: { after: 360 },
               children: [
-                new TextRun({ text: a.name + ": ", bold: true, size: BODY, color: NAVY, font: "Arial" }),
-                new TextRun({ text: a.comment || "", size: BODY, font: "Arial" })
+                new TextRun({ text: a.name + ": ", bold: true, size: BODY, color: INK, font: docFont() }),
+                new TextRun({ text: a.comment || "", size: BODY, font: docFont() })
               ]
             }));
           } else {
@@ -2253,8 +2523,8 @@ async function buildDocx() {
             children.push(new Paragraph({
               spacing: { after: 120 },
               children: [
-                new TextRun({ text: a.name, bold: true, size: BODY, color: NAVY, font: "Arial" }),
-                new TextRun({ text: `  (${label}, ${fmtBytes(a.size)} — supplied separately)`, size: BODY, font: "Arial", color: "6B7280" })
+                new TextRun({ text: a.name, bold: true, size: BODY, color: INK, font: docFont() }),
+                new TextRun({ text: `  (${label}, ${fmtBytes(a.size)} — supplied separately)`, size: BODY, font: docFont(), color: A ? "000000" : "6B7280" })
               ]
             }));
             if (a.comment) children.push(P(a.comment));
@@ -2263,6 +2533,7 @@ async function buildDocx() {
       }
     }
 
+    if (A && sec.isApp) { outer.push(...caAppTitle(sec.title), ...body); continue; }   // plain 20pt bold title, no box
     if (framed) {
       flushFrame();
       const light = (isBoxTpl() && !sec.isApp && BOXED_SECTION_RE.test(sec.title)) || (tpl.id === "classA" && sec.isApp);
@@ -2279,14 +2550,14 @@ async function buildDocx() {
   // ---- Running header/footer ----
   const CONTENT_W = 11906 - 1300 - 1300;
   const headerChildren = [
-    ...(logoBuf ? [new ImageRun({ type: "png", data: logoBuf, transformation: tpl.id === "classA" ? logoBox(44, 28) : logoBox(96, 53),
+    ...(logoBuf ? [new ImageRun({ type: "png", data: logoBuf, transformation: tpl.id === "classA" ? logoBox(62, 40) : logoBox(96, 53),
       altText: { title: "AirSafe", description: "AirSafe logo", name: "headlogo" } })] : []),
-    new TextRun({ text: "\tReport: " + (f.reportNo || ""), size: 16, color: NAVY, font: "Arial" })
+    new TextRun({ text: "\tReport: " + (f.reportNo || ""), size: A ? 18 : 16, color: INK, font: docFont() })
   ];
   const pageHeader = new Header({
     children: [new Paragraph({
       tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_W }],
-      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "5FD7B5", space: 4 } },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: A ? "88B6E0" : "5FD7B5", space: 4 } },
       spacing: { after: 200 },
       children: headerChildren
     })]
@@ -2294,10 +2565,10 @@ async function buildDocx() {
   const pageFooter = new Footer({
     children: [new Paragraph({
       tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_W }],
-      border: { top: { style: BorderStyle.SINGLE, size: 4, color: "DDE3EA", space: 4 } },
+      border: { top: { style: BorderStyle.SINGLE, size: 4, color: A ? "88B6E0" : "DDE3EA", space: 4 } },
       children: [
-        new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES], size: 16, font: "Arial", color: "6B7280" }),
-        new TextRun({ text: "\tDate of Issue: " + (fmtDate(f.dateOfIssue) || ""), size: 16, font: "Arial", color: "6B7280" })
+        new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES], size: A ? 24 : 16, font: docFont(), color: A ? "000000" : "6B7280" }),
+        new TextRun({ text: "\tDate of Issue: " + (fmtDate(f.dateOfIssue) || ""), size: A ? 22 : 16, font: docFont(), color: A ? "000000" : "6B7280" })
       ]
     })]
   });
@@ -2311,7 +2582,7 @@ async function buildDocx() {
   const docSections = photoCover ? [await photoCoverSection(), bodySection] : [bodySection];
 
   const doc = new Document({
-    styles: { default: { document: { run: { font: "Arial", size: BODY } } } },
+    styles: { default: { document: { run: { font: docFont(), size: BODY }, ...(A ? { paragraph: { spacing: { line: 276 } } } : {}) } } },
     sections: docSections
   });
   return Packer.toBlob(doc);
@@ -2357,7 +2628,7 @@ async function photoCoverSection() {
 
   const none = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
   const noBorders = { top: none, bottom: none, left: none, right: none };
-  const white = (text, o = {}) => new TextRun({ text, font: "Arial", color: "FFFFFF", ...o });
+  const white = (text, o = {}) => new TextRun({ text, font: docFont(), color: "FFFFFF", ...o });
   const innerW = W - 2 * SIDE;
 
   const tiny = () => new Paragraph({ spacing: { before: 0, after: 0, line: 20, lineRule: "exact" }, children: [new TextRun({ text: "", size: 2 })] });
@@ -2379,16 +2650,16 @@ async function photoCoverSection() {
       margins: { top: 520, bottom: 0, left: SIDE + 240, right: SIDE },
       width: { size: W, type: WidthType.DXA },
       children: [
-        new Paragraph({ spacing: { before: 0, after: 160 }, children: [white(tpl.docTitle, { bold: true, size: 69 })] }),
+        new Paragraph({ spacing: { before: 0, after: 160 }, children: [white(tpl.docTitle, { bold: true, size: tpl.id === "classB" ? 69 : 92 })] }),
         ...(tpl.id === "classB" ? [
           // Class B keeps its own cover fields: date of issue, report number, site address.
           new Paragraph({ spacing: { before: 0, after: 60 }, children: [white("Date of Issue: " + (fmtDate(f.dateOfIssue) || ""), { size: 20 })] }),
           new Paragraph({ spacing: { before: 0, after: 60 }, children: [white("Report Number: " + (f.reportNo || ""), { size: 20 })] }),
           new Paragraph({ spacing: { before: 0, after: 0 }, children: [white("Site Address: " + (f.siteAddress || ""), { size: 20 })] })
         ] : [
-          new Paragraph({ spacing: { before: 0, after: 80 }, children: [white(f.siteAddress || "Insert Address", { size: 23 })] }),
-          new Paragraph({ spacing: { before: 0, after: 60 }, children: [white("Report Number: " + (f.reportNo || "Insert Report Number"), { size: 20 })] }),
-          new Paragraph({ spacing: { before: 0, after: 0 }, children: [white("Work Order Number: " + (f.workOrder || "Insert Work Order Number"), { size: 20 })] })
+          new Paragraph({ spacing: { before: 0, after: 80 }, children: [white(f.siteAddress || "Insert Address", { size: 32 })] }),
+          new Paragraph({ spacing: { before: 0, after: 60 }, children: [white("Report Number: " + (f.reportNo || "Insert Report Number"), { size: 22 })] }),
+          new Paragraph({ spacing: { before: 0, after: 0 }, children: [white("Work Order Number: " + (f.workOrder || "Insert Work Order Number"), { size: 22 })] })
         ])
       ]
     })]
@@ -2401,14 +2672,14 @@ async function photoCoverSection() {
       new Paragraph({
         indent: { left: SIDE, right: SIDE },
         spacing: { before: 0, after: 140 },
-        children: [white(f.assessor || "", { bold: true, size: 18 })]
+        children: [white(f.assessor || "", { bold: true, size: tpl.id === "classB" ? 18 : 22 })]
       }),
       new Paragraph({
         indent: { left: SIDE, right: SIDE },
         spacing: { before: 0, after: 0 },
         tabStops: [{ type: TabStopType.CENTER, position: Math.round(W / 2) }, { type: TabStopType.RIGHT, position: W - SIDE }],
         border: { top: { style: BorderStyle.SINGLE, size: 4, color: "B8D3EC", space: 6 } },
-        children: [white(`${AIRSAFE_EMAIL}\t${f.reportNo || ""}\t${fmtDate(f.dateOfIssue) || ""}`, { size: 18 })]
+        children: [white(`${AIRSAFE_EMAIL}\t${f.reportNo || ""}\t${fmtDate(f.dateOfIssue) || ""}`, { size: tpl.id === "classB" ? 18 : 22 })]
       })
     ]
   });
@@ -2632,43 +2903,14 @@ document.getElementById("pickerOverlay").addEventListener("click", (e) => {
   if (e.target === e.currentTarget && Date.now() - pickerOpenedAt > 350) closePicker();
 });
 
-/* ---- Save as PDF: renders each A4 page to an image and downloads a real .pdf ---- */
-document.getElementById("btnPrint").addEventListener("click", async function () {
-  const btn = this;
-  const old = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "⏳ Creating PDF…";
-  const wrap = document.getElementById("pagesWrap");
-  const doc = document.getElementById("reviewDoc");
-  const prevT = wrap.style.transform, prevH = doc.style.height;
-  try {
-    // capture at natural A4 size, without screen chrome (borders/shadows/scaling)
-    wrap.style.transform = "";
-    doc.style.height = "";
-    wrap.classList.add("pdf-capture");
-    const pages = [...wrap.querySelectorAll(".a4")];
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
-    for (let i = 0; i < pages.length; i++) {
-      btn.textContent = `⏳ Creating PDF… page ${i + 1} of ${pages.length}`;
-      const canvas = await html2canvas(pages[i], { scale: 2, backgroundColor: "#ffffff", logging: false });
-      const img = canvas.toDataURL("image/jpeg", 0.92);
-      if (i > 0) pdf.addPage();
-      const h = Math.min(297, canvas.height * 210 / canvas.width);
-      pdf.addImage(img, "JPEG", 0, 0, 210, h);
-    }
-    pdf.save(docxFileName().replace(/\.docx$/, ".pdf"));
-  } catch (e) {
-    console.error(e);
-    alert("Could not create the PDF: " + e.message);
-  } finally {
-    wrap.classList.remove("pdf-capture");
-    wrap.style.transform = prevT;
-    doc.style.height = prevH;
-    btn.disabled = false;
-    btn.textContent = old;
-    fitReviewScale();
-  }
+/* ---- Save as PDF: the browser prints the Review pages (print CSS in style.css), so the PDF
+   keeps real, selectable text. Choose "Save as PDF" as the printer. The document title
+   becomes the suggested file name. ---- */
+document.getElementById("btnPrint").addEventListener("click", () => {
+  const title = document.title;
+  document.title = docxFileName().replace(/\.docx$/, "");
+  window.print();
+  document.title = title;
 });
 document.getElementById("btnBackToEdit").addEventListener("click", () => { showView("edit"); });
 

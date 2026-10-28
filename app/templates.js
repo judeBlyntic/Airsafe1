@@ -45,7 +45,7 @@ const TPL_CLASS_A = {
   cover: { fields: COMMON_COVER(false, true), reportFields: ["dateOfIssue", "workOrder"] },
   sections: [
     {
-      id: "s1", title: "1. CERTIFICATE SUMMARY",
+      id: "s1", title: "CERTIFICATE SUMMARY", origIdx: 1,
       blocks: [
         { type: "field", key: "arcpReviewed", label: "1.0 ARCP and WorkSafe Notification Reviewed", fieldType: "checkbox", def: "Yes" },
         { type: "field", key: "smokeTest", label: "1.1 Smoke Test Inspection completed successfully", fieldType: "checkbox", def: "Yes" },
@@ -84,7 +84,7 @@ All of AirSafe’s document(s) and/or information, including Clearance Inspectio
         { type: "text", key: "removalLocation", rows: 2, def: "" },
         { type: "sub", text: "3.6 Scope of Works" },
         { type: "text", key: "scopeOfWorks", rows: 5, def:
-`The list of removed non-friable Asbestos Containing Materials (ACMs):
+`The list of removed friable Asbestos Containing Materials (ACMs):
 • xxxx
 • xxxx
 • xxxx` },
@@ -121,11 +121,11 @@ Please Note: It is vitally important to note that this certificate is specifical
 
 See Appendix A for photographs taken prior to and following the removal of ACMs.` },
         { type: "table", key: "t421", title: "4.2.1 Stage 1 – Scope Confirmation",
-          caption: "The following checks represent the completion of Stage 1 (scope confirmation) clearance requirements for non-friable asbestos removal works.",
+          caption: "The following checks represent the completion of Stage 1 (scope confirmation) clearance requirements for friable asbestos removal works.",
           items: [
           "WorkSafe Notification Reviewed", "ARCP Reviewed", "Scope of Removal Matches ARCP", "Site Setup Matches ARCP" ] },
         { type: "table", key: "t422", title: "4.2.2 Stage 2 – Visual Inspection",
-          caption: "The following checks represent the completion of Stage 2 (visual inspection) clearance requirements for non-friable asbestos removal works.",
+          caption: "The following checks represent the completion of Stage 2 (visual inspection) clearance requirements for friable asbestos removal works.",
           items: [
           "ACMs Removed", "No Visible Asbestos Debris", "Work Area Clean", "Transit and Waste Routes Clean" ] },
         { type: "table", key: "t423", title: "4.2.3 Stage 3 – Surface Testing by Dust Disturbance", itemHeader: "Condition", items: [
@@ -238,9 +238,9 @@ While AirSafe carries out the work to the best of our ability, AirSafe shall hav
         { type: "sigtext", key: "undertakenBy", rows: 3, def: "Ahmad Shendi\nLicensed Assessor - AA17040065\nBSc, PGDipSci (EnvMan), MSc (Hons)" }
       ]
     },
-    { id: "appA", title: "APPENDIX A — Photographs", photos: true, blocks: [] },
-    { id: "appB", title: "APPENDIX B — Photographs", photos: true, attachments: true, blocks: [] },
-    { id: "appC", title: "APPENDIX C — Photographs", photos: true, attachments: true, blocks: [] }
+    { id: "appA", title: "APPENDIX A – Photographs", photos: true, blocks: [] },
+    { id: "appB", title: "APPENDIX B – Airborne Fibre Monitoring Reports", photos: true, attachments: true, blocks: [] },
+    { id: "appC", title: "APPENDIX C – Site Layout and Enclosure Diagram (ARCP Extract)", photos: true, attachments: true, blocks: [] }
   ]
 };
 

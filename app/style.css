@@ -604,15 +604,6 @@ input:focus, select:focus, textarea:focus {
   padding: 22px 13mm 8mm;
   position: relative;
 }
-.cover-photo-banner::before {
-  content: "";
-  position: absolute;
-  left: 13mm;
-  top: 22px;
-  width: 3px;
-  height: 22px;
-  background: #a97a3a;
-}
 .cover-photo-text { padding-left: 16px; }
 .cover-photo-text h1 {
   color: #fff;
@@ -797,22 +788,19 @@ input:focus, select:focus, textarea:focus {
 .send-status.error { background: #fdeeec; border-color: #eccfcb; color: var(--danger); }
 
 /* ---------- Print (Save as PDF from Review) ---------- */
-@page { size: A4; margin: 12mm; }
+/* The Review pages are already laid out as A4 sheets, so print them as they are: no page
+   margin, one sheet per page, backgrounds kept. This gives a PDF with real, selectable text. */
+@page { size: A4; margin: 0; }
 @media print {
-  body { background: #fff; }
-  .topbar, .appfooter, .no-print { display: none !important; }
+  html, body { background: #fff; margin: 0; height: auto; }
+  .topbar, .appfooter, .no-print, .review-toolbar { display: none !important; }
   .view { display: none; padding: 0; max-width: none; }
   #reviewView { display: block !important; }
-  #pagesWrap { transform: none !important; height: auto !important; }
-  .a4 { border: none; box-shadow: none; max-width: none; margin: 0; padding: 0; }
-  .a4.cover-page { min-height: auto; height: 265mm; }
-  .cover-page:not(.cover-photo) .cover-foot { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-  .a4.body-page { height: auto; min-height: 265mm; }
-  .a4 + .a4 { break-before: page; }
-  .review-doc { font-size: 9pt; }
-  .review-doc h2 { break-after: avoid; }
-  .review-doc .r-photo-entry { break-inside: avoid; }
-  .review-doc table { break-inside: avoid; }
+  #reviewDoc { height: auto !important; }
+  #pagesWrap { transform: none !important; height: auto !important; margin: 0; }
+  #reviewDoc .a4.a4 { border: none; box-shadow: none; max-width: none; margin: 0 !important; height: 297mm !important; min-height: 0; overflow: hidden; break-after: page; break-inside: avoid; }
+  #reviewDoc .a4.a4:last-child { break-after: auto; }
+  #reviewDoc * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
 
 /* ---------- Tri-state cycle button ---------- */
@@ -982,7 +970,6 @@ input:focus, select:focus, textarea:focus {
 .review-doc[data-tpl="classA"] .a4.cover-photo { height: 1123px; }
 .review-doc[data-tpl="classA"] .cover-photo-img { flex: 0 0 653px; }
 .review-doc[data-tpl="classA"] .cover-photo-banner { flex: 1; padding: 34.7px 49px 30px; }
-.review-doc[data-tpl="classA"] .cover-photo-banner::before { display: none; }
 .review-doc[data-tpl="classA"] .cover-photo-text h1 { letter-spacing: 0; }
 .review-doc[data-tpl="classA"] .cover-photo-meta { font-size: 13.33px; }
 
@@ -995,6 +982,46 @@ input:focus, select:focus, textarea:focus {
 
 /* Class B cover: the supplied page-sized image (photo on top, blue band below) is the whole
    page background; the dynamic fields sit over the band, the footer line at the bottom. */
+/* ==========================================================================
+   Class A type scale, from the original Word template (1pt = 1.333px): Calibri, 11pt body,
+   12pt section headings, 11pt sub-headings, 20pt appendix headings, 1.15 line spacing,
+   6pt after paragraphs, 3pt between bullets, 12pt before / 6pt after headings, 3pt cell padding.
+   ========================================================================== */
+.review-doc[data-tpl="classA"] { font-family: Calibri, Carlito, Arial, sans-serif; font-size: 14.67px; line-height: 1.15; }
+.review-doc[data-tpl="classA"] .head-report { font-size: 9pt; }
+.review-doc[data-tpl="classA"] .page-foot { font-size: 11pt; }
+.review-doc[data-tpl="classA"] .page-foot span:first-child { font-size: 12pt; }
+
+.review-doc[data-tpl="classA"] h2:not(.r-boxhead) { font-size: 16px; margin: 16px 0 8px; }
+.review-doc[data-tpl="classA"] h3:not(.r-boxhead) { font-size: 14.67px; margin: 16px 0 8px; }
+.review-doc[data-tpl="classA"] h3.r-boxhead { font-size: 14.67px; }
+.review-doc[data-tpl="classA"] h2.r-boxhead { font-size: 16px; }
+.review-doc[data-tpl="classA"] h2.r-boxhead.r-app { font-size: 26.67px; }
+.review-doc[data-tpl="classA"] .r-app .app-sub { display: block; font-weight: 400; }
+.review-doc[data-tpl="classA"] .r-field, .review-doc[data-tpl="classA"] p { font-size: 14.67px; margin: 0 0 8px; }
+.review-doc[data-tpl="classA"] p.r-bullet { margin-bottom: 4px; }
+.review-doc[data-tpl="classA"] h3.r-in { padding-top: 16px; padding-bottom: 8px; }
+.review-doc[data-tpl="classA"] .r-boxhead + h3.r-in { padding-top: 30.67px; }
+.review-doc[data-tpl="classA"] .r-table-caption { font-size: 14.67px; margin: 0 0 8px; }
+.review-doc[data-tpl="classA"] .r-tw table { font-size: 14.67px; }
+
+/* Cover: 46pt title, 16pt address, 11pt report / work order lines and footer */
+.review-doc[data-tpl="classA"] .cover-photo-text h1 { font-size: 61.33px; }
+.review-doc[data-tpl="classA"] .cover-photo-address { font-size: 21.33px; }
+.review-doc[data-tpl="classA"] .cover-photo-meta, .review-doc[data-tpl="classA"] .cover-foot-name, .review-doc[data-tpl="classA"] .cover-foot { font-size: 14.67px; }
+
+/* The one-page groups start at the same sizes; --fit only shrinks them if they would not fit */
+.review-doc[data-tpl="classA"] .r-fitgroup { font-size: calc(14.67px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup h2:not(.r-boxhead) { font-size: calc(16px * var(--fit)); margin: calc(16px * var(--fit)) 0 calc(8px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup h3:not(.r-boxhead) { font-size: calc(14.67px * var(--fit)); margin: calc(16px * var(--fit)) 0 calc(8px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-field, .review-doc[data-tpl="classA"] .r-fitgroup p { font-size: calc(14.67px * var(--fit)); margin: 0 0 calc(8px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup p.r-bullet { margin-bottom: calc(4px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-table-caption { font-size: calc(14.67px * var(--fit)); margin: 0 0 calc(8px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-tw table { font-size: calc(14.67px * var(--fit)); margin: 0 0 calc(16px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-tw th, .review-doc[data-tpl="classA"] .r-fitgroup .r-tw td { padding: calc(4px * var(--fit)) calc(6.67px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup h3.r-boxhead { font-size: calc(14.67px * var(--fit)); padding: calc(4px * var(--fit)) calc(6.67px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-boxed { padding: calc(9.33px * var(--fit)); margin: 0 0 calc(16px * var(--fit)); }
+
 .a4.cover-bg { height: 1123px; padding: 0 49px 30px; overflow: hidden; background: #88b6e0 url("cover-bg.jpg") center top / 100% 100% no-repeat; }
 .cover-bg .cover-bg-text { margin-top: 688px; padding-left: 16px; }
 .cover-bg h1 { color: #fff; font-size: 46px; line-height: 1.15; letter-spacing: 0; margin: 0 0 10px; }
@@ -1003,5 +1030,37 @@ input:focus, select:focus, textarea:focus {
 .cover-bg .r-empty { color: rgba(255,255,255,.75); }
 .a4.cover-bg .cover-foot-name { color: #fff; padding-bottom: 7px; }
 .a4.cover-bg .cover-foot { background: none; margin: 0; padding: 6px 0 0; border-top: 1px solid rgba(255,255,255,.4); }
+
+/* ===== Class A: cover colours only (baby blue #88B6E0, white, black) =====
+   Heading bar #88B6E0 / white; sub-item bars and table headers #CFE2F3 / black; box edge
+   #88B6E0; thin row lines #C9DDF2. Number column 1.4cm (52.9px); rows never split. */
+.review-doc[data-tpl="classA"] { --c1: 52.9px; --c2: 286.7px; --s2: 233.3px; --s3: 93.3px; color: #000; }
+.review-doc[data-tpl="classA"] .page-head { border-bottom-color: #88b6e0; }
+.review-doc[data-tpl="classA"] .page-head img { height: 40px; width: auto; }
+.review-doc[data-tpl="classA"] .head-report { color: #000; }
+.review-doc[data-tpl="classA"] .body-page .page-foot { color: #000; border-top-color: #88b6e0; }
+.review-doc[data-tpl="classA"] .ca-bar { background: #88b6e0; color: #fff; font-weight: 700; font-size: 16px; padding: 5.33px 6.67px; line-height: 1.15; }
+.review-doc[data-tpl="classA"] .ca-gap { height: 8px; }
+.review-doc[data-tpl="classA"] .ca-gap2 { height: 16px; }
+.review-doc[data-tpl="classA"] .ca-row { box-sizing: border-box; border-left: 1px solid #88b6e0; border-right: 1px solid #88b6e0; color: #000; }
+.review-doc[data-tpl="classA"] .ca-row.g-n { display: grid; grid-template-columns: var(--c1) var(--c2) 1fr; }
+.review-doc[data-tpl="classA"] .ca-row.g-s { display: grid; grid-template-columns: var(--c1) var(--s2) var(--s3) 1fr; }
+.review-doc[data-tpl="classA"] .ca-row.g-n > *, .review-doc[data-tpl="classA"] .ca-row.g-s > * { padding: 4px 6.67px; min-width: 0; }
+.review-doc[data-tpl="classA"] .ca-row.ca-p { padding: 4px 6.67px; }
+.review-doc[data-tpl="classA"] .ca-nr, .review-doc[data-tpl="classA"] .ca-tr, .review-doc[data-tpl="classA"] .ca-th { border-top: 1px solid #c9ddf2; }
+.review-doc[data-tpl="classA"] .ca-date .c-ld { grid-column: 1 / 3; }
+.review-doc[data-tpl="classA"] .ca-date .c-rv { grid-column: 3; }
+.review-doc[data-tpl="classA"] .ca-sb, .review-doc[data-tpl="classA"] .ca-th { background: #cfe2f3; font-weight: 700; }
+.review-doc[data-tpl="classA"] .ca-sb .c-tit { grid-column: 2 / -1; }
+.review-doc[data-tpl="classA"] .ca-th .c-item, .review-doc[data-tpl="classA"] .ca-tr .c-item { grid-column: 1 / 3; }
+.review-doc[data-tpl="classA"] .ca-th > :nth-child(n+2), .review-doc[data-tpl="classA"] .ca-tr > :nth-child(n+2) { border-left: 1px solid #c9ddf2; }
+.review-doc[data-tpl="classA"] .ca-yes { background: #e2f0d9; }
+.review-doc[data-tpl="classA"] .ca-nr .c-val p, .review-doc[data-tpl="classA"] .ca-nr .c-val { margin: 0; }
+.review-doc[data-tpl="classA"] .ca-row.ca-top { border-top: 1px solid #88b6e0; }
+.review-doc[data-tpl="classA"] .ca-row.ca-bottom { border-bottom: 1px solid #88b6e0; }
+.review-doc[data-tpl="classA"] .ca-sigh { color: #000; font-size: 14.67px; margin: 16px 0 8px; }
+.review-doc[data-tpl="classA"] .r-photo-comment b, .review-doc[data-tpl="classA"] .r-attach-entry b { color: #000; }
+.review-doc[data-tpl="classA"] .ca-app { color: #000; font-size: 26.67px; font-weight: 700; line-height: 1.15; margin: 0 0 16px; }
+.review-doc[data-tpl="classA"] .ca-app b { display: block; font-weight: 700; }
 
 
