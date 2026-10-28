@@ -930,4 +930,78 @@ input:focus, select:focus, textarea:focus {
   display: none !important;
 }
 
+/* ==========================================================================
+   Class A: Review laid out like the Word report, so both show the same pages.
+   Sizes are the Word values (1pt = 1.333px, 15 twips = 1px): 1300-twip side
+   margins, text from 100px to 93px above the bottom, 9pt body, one paragraph
+   per line, light-blue title bars over 1/8pt grey borders.
+   ========================================================================== */
+.review-doc[data-tpl="classA"] { line-height: 1.15; }
+.review-doc[data-tpl="classA"] .a4.body-page { padding: 47px 87px 47px; }
+.review-doc[data-tpl="classA"] .page-head { padding-bottom: 5px; border-bottom-width: 1px; margin-bottom: 19px; }
+.review-doc[data-tpl="classA"] .head-report { font-weight: 400; font-size: 8pt; }
+.review-doc[data-tpl="classA"] .body-page .page-foot { margin-top: 27px; }
+
+.review-doc[data-tpl="classA"] h2:not(.r-boxhead) { font-size: 17.33px; border: 0; padding: 0; margin: 30.67px 0 20px; line-height: 1.15; }
+.review-doc[data-tpl="classA"] h3:not(.r-boxhead) { font-size: 15.33px; margin: 25.33px 0 16px; line-height: 1.15; }
+.review-doc[data-tpl="classA"] .r-field { margin: 0 0 16px; }
+.review-doc[data-tpl="classA"] p { margin: 0 0 16.67px; }
+.review-doc[data-tpl="classA"] p.r-blank { margin: 0 0 10px; height: 13.8px; }
+.review-doc[data-tpl="classA"] .r-empty { visibility: hidden; }
+.review-doc[data-tpl="classA"] .r-sigtext p, .review-doc[data-tpl="classA"] .r-sigtext p.r-blank { margin: 0 0 10px; }
+.review-doc[data-tpl="classA"] .r-sigrow { margin: 0 0 29.8px; }
+
+.review-doc[data-tpl="classA"] h3.r-boxhead { font-size: 12px; margin: 0; padding: 4px 6.67px; border: 1px solid #9aa7b5; line-height: 1.15; }
+.review-doc[data-tpl="classA"] .r-boxed { border: 1px solid #9aa7b5; border-top: 0; padding: 9.33px; margin: 0 0 29.8px; }
+.review-doc[data-tpl="classA"] h2.r-boxhead { font-size: 16px; margin: 0; padding: 5.33px 9.33px; border: 1px solid #9aa7b5; line-height: 1.15; }
+.review-doc[data-tpl="classA"] .r-in { padding-left: 11.33px; padding-right: 11.33px; border-left-color: #9aa7b5; border-right-color: #9aa7b5; }
+.review-doc[data-tpl="classA"] h3.r-in { margin: 0; padding-top: 25.33px; padding-bottom: 16px; }
+.review-doc[data-tpl="classA"] .r-boxhead + h3.r-in { padding-top: 40px; }
+.review-doc[data-tpl="classA"] .r-boxhead + .r-in:not(h3) { padding-top: 14.67px; }
+.review-doc[data-tpl="classA"] .r-in.r-in-last { border-bottom: 1px solid #9aa7b5; padding-bottom: 14.67px; margin-bottom: 0; }
+
+.review-doc[data-tpl="classA"] .r-tw table { table-layout: fixed; margin: 0 0 29.8px; }
+.review-doc[data-tpl="classA"] .r-tw th, .review-doc[data-tpl="classA"] .r-tw td { border: 1px solid #9aa7b5; padding: 4px 6.67px; line-height: 1.15; }
+.review-doc[data-tpl="classA"] .r-tw th:nth-child(1) { width: 44.87%; }
+.review-doc[data-tpl="classA"] .r-tw th:nth-child(2) { width: 14.96%; }
+.review-doc[data-tpl="classA"] .r-table-caption { color: inherit; margin: 0 0 20px; font-size: 12px; }
+
+/* 2.0+3.0 and 4.2.x are compact in Word too (smaller type, tighter spacing); --fit shrinks further only if needed */
+.review-doc[data-tpl="classA"] .r-fitgroup { --fit: 1; font-size: calc(10.67px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup h2:not(.r-boxhead) { font-size: calc(14.67px * var(--fit)); margin: calc(13.33px * var(--fit)) 0 calc(8px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup h3:not(.r-boxhead) { font-size: calc(13.33px * var(--fit)); margin: calc(10.67px * var(--fit)) 0 calc(5.33px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-field, .review-doc[data-tpl="classA"] .r-fitgroup p { font-size: calc(10.67px * var(--fit)); margin: 0 0 calc(5.33px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup p.r-blank { margin: 0 0 calc(2.67px * var(--fit)); height: calc(12.3px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-table-caption { font-size: calc(10.67px * var(--fit)); margin: 0 0 calc(8px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-tw table { font-size: calc(10.67px * var(--fit)); margin: 0 0 calc(16px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-tw th, .review-doc[data-tpl="classA"] .r-fitgroup .r-tw td { padding: calc(2.67px * var(--fit)) calc(5px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup h3.r-boxhead { font-size: calc(10.67px * var(--fit)); padding: calc(2.67px * var(--fit)) calc(5px * var(--fit)); }
+.review-doc[data-tpl="classA"] .r-fitgroup .r-boxed { padding: calc(6px * var(--fit)); margin: 0 0 calc(16px * var(--fit)); }
+
+/* Cover: photo 653px on top, blue band running to the bottom edge, as in the Word cover */
+.review-doc[data-tpl="classA"] .a4.cover-photo { height: 1123px; }
+.review-doc[data-tpl="classA"] .cover-photo-img { flex: 0 0 653px; }
+.review-doc[data-tpl="classA"] .cover-photo-banner { flex: 1; padding: 34.7px 49px 30px; }
+.review-doc[data-tpl="classA"] .cover-photo-banner::before { display: none; }
+.review-doc[data-tpl="classA"] .cover-photo-text h1 { letter-spacing: 0; }
+.review-doc[data-tpl="classA"] .cover-photo-meta { font-size: 13.33px; }
+
+/* Appendix photos: one under another, centred, 400px wide, caption below (as Word) */
+.review-doc[data-tpl="classA"] .r-photo-entry { display: block; text-align: center; margin: 0; }
+.review-doc[data-tpl="classA"] .r-photo-entry.r-in { padding: 0 11.33px; }
+.review-doc[data-tpl="classA"] .r-photo-img-wrap { flex: none; max-width: none; padding: 21.3px 0 12px; }
+.review-doc[data-tpl="classA"] .r-photo-img-wrap img { width: auto; max-width: 400px; height: auto; max-height: none; border: 0; border-radius: 0; object-fit: fill; }
+.review-doc[data-tpl="classA"] .r-photo-comment { padding-bottom: 24px; text-align: center; }
+
+/* Class B cover: the supplied page-sized image (photo on top, blue band below) is the whole
+   page background; the dynamic fields sit over the band, the footer line at the bottom. */
+.a4.cover-bg { height: 1123px; padding: 0 49px 30px; overflow: hidden; background: #88b6e0 url("cover-bg.jpg") center top / 100% 100% no-repeat; }
+.cover-bg .cover-bg-text { margin-top: 688px; padding-left: 16px; }
+.cover-bg h1 { color: #fff; font-size: 46px; line-height: 1.15; letter-spacing: 0; margin: 0 0 10px; }
+.cover-bg .cover-photo-meta { font-size: 13.33px; padding-left: 0; }
+.cover-bg .cover-photo-meta b { font-weight: 700; }
+.cover-bg .r-empty { color: rgba(255,255,255,.75); }
+.a4.cover-bg .cover-foot-name { color: #fff; padding-bottom: 7px; }
+.a4.cover-bg .cover-foot { background: none; margin: 0; padding: 6px 0 0; border-top: 1px solid rgba(255,255,255,.4); }
+
 

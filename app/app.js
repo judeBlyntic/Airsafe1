@@ -1545,18 +1545,24 @@ function rf(label, value) {
   return `<div class="r-field"><b>${esc(label)}:</b> ${orEmpty(value)}</div>`;
 }
 function paras(text) {
+  /* Class A: the Word file writes one paragraph per line (an empty paragraph for a
+     blank line), so the Review does the same to get the same spacing and page breaks. */
+  if (tpl && tpl.id === "classA") {
+    return String(text || "").split(/\r?\n/)
+      .map(l => l.trim() === "" ? `<p class="r-blank"></p>` : `<p>${esc(l)}</p>`).join("");
+  }
   const t = String(text || "").trim();
   if (!t) return `<p>${orEmpty("")}</p>`;
   return t.split(/\n\s*\n/).map(chunk => `<p>${esc(chunk)}</p>`).join("");
 }
 /* Class A/B boxed design: sections drawn as a filled title bar over a bordered body,
    and these text blocks (with their sub-heading) drawn as the same one-cell box. */
-const BOXED_SECTION_RE = /VISUAL CLEARANCE INSPECTION|AIRBORNE FIBRE MONITORING|NOTES AND LIMITATIONS|RE-OCCUPATION/;
+const BOXED_SECTION_RE = /VISUAL CLEARANCE INSPECTION|AIRBORNE FIBRE MONITORING|NOTES AND LIMITATIONS|RE-OCCUPATION|GROUND SURFACE SOIL SAMPLING/;
 const BOXED_TEXT_KEYS = ["acmsRemaining", "scopeOfWorks", "areasInspected"];
 const FIT_PAGE_RE = /CLIENT INFORMATION|REMOVAL INFORMATION/;
 const isBoxTpl = () => tpl.id === "classA" || tpl.id === "classB";
-// Class A also boxes 1.2 Summary; Class B's summary stays plain.
-const isBoxedText = key => isBoxTpl() && (BOXED_TEXT_KEYS.includes(key) || (tpl.id === "classA" && key === "summary"));
+// The summary (1.2 in Class A, 1.1 in Class B) is boxed too.
+const isBoxedText = key => isBoxTpl() && (BOXED_TEXT_KEYS.includes(key) || key === "summary");
 
 function rTable(block) {
   let h = `<h3>${esc(block.title)}</h3>`;
@@ -1615,7 +1621,7 @@ function buildReviewContent() {
     if (sec.photos) {
       const photos = report.photos[sec.id] || [];
       if (photos.length === 0) {
-        html += `<p class="r-empty">No photographs added.</p>`;
+        html += tpl.id === "classA" ? `<p>No photographs included.</p>` : `<p class="r-empty">No photographs added.</p>`;
       } else {
         photos.forEach((p, i) => {
           html += `
@@ -1682,6 +1688,19 @@ function coverPageHtml(f) {
       </div>
     </div>`;
   }
+  /* Class B: the supplied full-page image (photo on top, blue band below) is the page
+     background; the same dynamic fields as before are laid over the band. */
+  if (tpl.id === "classB") {
+    return `<div class="a4 cover-page cover-bg">
+      <div class="cover-bg-text">
+        <h1>${esc(tpl.docTitle)}</h1>
+        <div class="cover-photo-meta"><b>Date of Issue:</b> ${orEmpty(fmtDate(f.dateOfIssue))}</div>
+        <div class="cover-photo-meta"><b>Report Number:</b> ${orEmpty(f.reportNo)}</div>
+        <div class="cover-photo-meta"><b>Site Address:</b> ${orEmpty(f.siteAddress)}</div>
+      </div>
+      ${coverFoot(f)}
+    </div>`;
+  }
   return `<div class="a4 cover-page">
     ${pageHead(f)}
     <div class="cover-center">
@@ -1736,6 +1755,9 @@ function renderReview() {
   pages.push(cur);
 
   let photosOnPage = 0;
+  // Class A photos flow one under another like the Word file; other reports keep 3 per page.
+  const wordFlow = tpl.id === "classA";
+  const photoGrid = !wordFlow;
 
   // Class A/B: 4.3 ACMs Remaining, 5.0 Airborne Fibre Monitoring and 6.0/7.0 Notes
   // and Limitations must each stand alone on their own A4 page(s), separate from
@@ -1755,7 +1777,7 @@ function renderReview() {
     );
 
     let forceNewPage = false;
-    if (isPhoto && photosOnPage >= 3) {
+    if (isPhoto && photoGrid && photosOnPage >= 3) {
       forceNewPage = true;
     }
     if (isAppendixH2 && cur.content.children.length > 0) {
@@ -1767,6 +1789,8 @@ function renderReview() {
     if (isSignificantHeading) soloPending = isSoloStart;
     const isFit = block.classList.contains("r-fitgroup");
     if (isFit && cur.content.children.length > 0) forceNewPage = true;
+    // Class A: every boxed section (4.0, 5.0, 6.0, 7.0, appendices) starts a new page, as in Word.
+    if (wordFlow && block.tagName === "H2" && block.classList.contains("r-boxhead") && cur.content.children.length > 0) forceNewPage = true;
 
     if (forceNewPage) {
       cur = newBodyPage(wrap, f);
@@ -1777,7 +1801,7 @@ function renderReview() {
     cur.content.appendChild(block);
     if (isPhoto) {
       photosOnPage++;
-      cur.content.classList.add("justified-photos");
+      if (photoGrid) cur.content.classList.add("justified-photos");
     }
     // Stage 1-4 tables share one page: shrink the text step by step until they fit.
     if (isFit) {
@@ -1787,6 +1811,34 @@ function renderReview() {
     }
 
     if (cur.content.scrollHeight <= cur.content.clientHeight) continue;
+
+    // Split a text block between whole paragraphs: as many as fit (at least `minKeep`)
+    // stay on this page, the rest continue on the next. Returns true if it split.
+    const splitTextBlock = (minKeep) => {
+      const paraEls = Array.from(block.children);
+      if (paraEls.length <= 1) return false;
+      let lo = 1, hi = paraEls.length, best = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        paraEls.forEach((p, i) => { p.style.display = i < mid ? "" : "none"; });
+        if (cur.content.scrollHeight <= cur.content.clientHeight) { best = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      paraEls.forEach(p => { p.style.display = ""; });
+      if (best < minKeep || best >= paraEls.length) return false;
+      const rest = paraEls.slice(best);
+      rest.forEach(p => block.removeChild(p));
+      const cont = document.createElement("div");
+      cont.className = block.className;
+      block.classList.remove("r-in-last");
+      rest.forEach(p => cont.appendChild(p));
+      queue.unshift(cont);
+      return true;
+    };
+
+    // Class A (like Word, where a table row splits across pages): fill this page with
+    // the first lines of the text box instead of pushing the whole box to the next page.
+    if (wordFlow && cur.content.children.length > 1 && block.classList.contains("r-textblock") && splitTextBlock(2)) continue;
 
     // The block just added doesn't fit. If other content already sits above it on
     // this page, move the whole block (plus any heading directly introducing it) to
@@ -1809,7 +1861,7 @@ function renderReview() {
           cur.content.appendChild(el);
           if (el.classList.contains("r-photo-entry")) {
             photosOnPage++;
-            cur.content.classList.add("justified-photos");
+            if (photoGrid) cur.content.classList.add("justified-photos");
           }
         });
       }
@@ -1819,26 +1871,7 @@ function renderReview() {
     // itself. Rather than cut a paragraph in half, split the block between whole
     // paragraphs only — as many as fit stay here, the rest continue on the next page.
     if (block.classList.contains("r-textblock") && cur.content.scrollHeight > cur.content.clientHeight) {
-      const paraEls = Array.from(block.children);
-      if (paraEls.length > 1) {
-        let lo = 1, hi = paraEls.length, best = 0;
-        while (lo <= hi) {
-          const mid = (lo + hi) >> 1;
-          paraEls.forEach((p, i) => { p.style.display = i < mid ? "" : "none"; });
-          if (cur.content.scrollHeight <= cur.content.clientHeight) { best = mid; lo = mid + 1; }
-          else hi = mid - 1;
-        }
-        paraEls.forEach(p => { p.style.display = ""; });
-        if (best > 0 && best < paraEls.length) {
-          const rest = paraEls.slice(best);
-          rest.forEach(p => block.removeChild(p));
-          const cont = document.createElement("div");
-          cont.className = block.className;
-          block.classList.remove("r-in-last");
-          rest.forEach(p => cont.appendChild(p));
-          queue.unshift(cont);
-        }
-      }
+      splitTextBlock(1);
     }
   }
 
@@ -1881,15 +1914,22 @@ async function buildDocx() {
   const BODY = 18; // 9pt (half-points)
   const outer = [];
 
+  /* Compact mode (8pt type, tighter spacing) is used for the two areas that must fit one
+     page: 2.0 + 3.0 and the 4.2.x tables. The Review uses the same values. */
+  let compact = false;
+  const FS = () => (compact ? 16 : BODY);
+  const sp = (full, small) => (compact ? small : full);
+
   const P = (text, opts = {}) => new Paragraph({
-    spacing: { after: 300 },
+    spacing: { after: sp(300, 120) },
     alignment: opts.center ? AlignmentType.CENTER : AlignmentType.LEFT,
-    children: [new TextRun({ text, bold: !!opts.bold, size: opts.size || BODY, color: opts.color, font: "Arial" })]
+    children: [new TextRun({ text, bold: !!opts.bold, size: opts.size || FS(), color: opts.color, font: "Arial" })]
   });
   const multi = (text) => String(text || "").split(/\r?\n/).map(line =>
     new Paragraph({
-      spacing: { after: line.trim() === "" ? 150 : 250 },
-      children: [new TextRun({ text: line, size: BODY, font: "Arial" })]
+      spacing: { after: line.trim() === "" ? sp(150, 40) : sp(250, 80) },
+      run: { size: FS() },
+      children: [new TextRun({ text: line, size: FS(), font: "Arial" })]
     })
   );
   /* A page break done as a paragraph setting ("page break before") never leaves a
@@ -1902,19 +1942,20 @@ async function buildDocx() {
   const H1 = (text, o = {}) => new Paragraph({
     heading: HeadingLevel.HEADING_1,
     pageBreakBefore: !!o.pageBreakBefore,
-    spacing: { before: 460, after: 300 },
-    children: [new TextRun({ text, bold: true, size: 26, color: NAVY, font: "Arial" })]
+    spacing: { before: sp(460, 200), after: sp(300, 120) },
+    children: [new TextRun({ text, bold: true, size: sp(26, 22), color: NAVY, font: "Arial" })]
   });
   const H2 = (text) => new Paragraph({
     heading: HeadingLevel.HEADING_2,
-    spacing: { before: 380, after: 240 },
-    children: [new TextRun({ text, bold: true, size: 23, color: NAVY, font: "Arial" })]
+    spacing: { before: sp(380, 160), after: sp(240, 80) },
+    children: [new TextRun({ text, bold: true, size: sp(23, 20), color: NAVY, font: "Arial" })]
   });
   const FIELD = (label, value) => new Paragraph({
-    spacing: { after: 240 },
+    spacing: { after: sp(240, 80) },
+    run: { size: FS() },
     children: [
-      new TextRun({ text: label + ":  ", bold: true, size: BODY, color: NAVY, font: "Arial" }),
-      new TextRun({ text: value || "", size: BODY, font: "Arial" })
+      new TextRun({ text: label + ":  ", bold: true, size: FS(), color: NAVY, font: "Arial" }),
+      new TextRun({ text: value || "", size: FS(), font: "Arial" })
     ]
   });
 
@@ -1962,7 +2003,7 @@ async function buildDocx() {
   // ---- Cover page ----
   /* Class A: same photo cover as the Review tab, in its own zero-margin section
      (built below). Other reports keep the plain logo cover. */
-  const photoCover = tpl.id === "classA";
+  const photoCover = tpl.id === "classA" || tpl.id === "classB";
   if (!photoCover) {
   if (logoBuf) {
     outer.push(new Paragraph({
@@ -1991,11 +2032,11 @@ async function buildDocx() {
   // ---- Generic body from template ----
   const border = { style: BorderStyle.SINGLE, size: 1, color: "9AA7B5" };
   const borders = { top: border, bottom: border, left: border, right: border };
-  const cellMargins = { top: 60, bottom: 60, left: 100, right: 100 };
+  const cellMargins = () => compact ? { top: 40, bottom: 40, left: 75, right: 75 } : { top: 60, bottom: 60, left: 100, right: 100 };
   const mkCell = (text, width, opts = {}) => new TableCell({
-    borders, width: { size: width, type: WidthType.DXA }, margins: cellMargins,
+    borders, width: { size: width, type: WidthType.DXA }, margins: cellMargins(),
     shading: opts.head ? { fill: "EEF2FB", type: ShadingType.CLEAR } : undefined,
-    children: [new Paragraph({ children: [new TextRun({ text, bold: !!opts.head, size: BODY, color: opts.head ? NAVY : undefined, font: "Arial" })] })]
+    children: [new Paragraph({ run: { size: FS() }, children: [new TextRun({ text, bold: !!opts.head, size: FS(), color: opts.head ? NAVY : undefined, font: "Arial" })] })]
   });
   const checkTable = (block, tableW = 9360) => {
     const c0 = Math.round(tableW * 0.4487), c1 = Math.round(tableW * 0.1496);
@@ -2064,6 +2105,7 @@ async function buildDocx() {
     /* Section 4 onwards, plus every appendix, is framed and starts a new page. */
     const framed = sec.isApp || sec.secNo >= 4;
     const bodyW = framed ? FRAME_INNER_W : 9360;
+    compact = !framed && isBoxTpl() && FIT_PAGE_RE.test(sec.title);
     /* Collect this section's content separately so it can be dropped into a
        frame cell; unframed sections are appended straight to the document. */
     let body = [];
@@ -2097,7 +2139,7 @@ async function buildDocx() {
         const nx = secBlocks[bi + 1];
         if (nx && nx.type === "text" && isBoxedText(nx.key)) {
           // 4.3 gets its own page as a separate box, matching the Review preview.
-          if (b.toggle === "acmsRemaining" && framed) { flushFrame(); boxOwnPage = true; }
+          if (b.toggle === "acmsRemaining" && framed) { flushFrame(); boxOwnPage = true; compact = false; }
           boxTitle = b.text;   // drawn as a filled title bar + bordered body with the text block below
         } else children.push(H2(b.text));
       }
@@ -2120,12 +2162,12 @@ async function buildDocx() {
             new TableRow({ cantSplit: true, children: [new TableCell({
               borders: edges, width: { size: boxW, type: WidthType.DXA },
               shading: { fill: "EEF2FB", type: ShadingType.CLEAR, color: "auto" },
-              margins: { top: 60, bottom: 60, left: 100, right: 100 },
-              children: [new Paragraph({ children: [new TextRun({ text: boxTitle, bold: true, size: BODY, color: NAVY, font: "Arial" })] })]
+              margins: cellMargins(),
+              children: [new Paragraph({ run: { size: FS() }, children: [new TextRun({ text: boxTitle, bold: true, size: FS(), color: NAVY, font: "Arial" })] })]
             })] }),
             new TableRow({ children: [new TableCell({
               borders: edges, width: { size: boxW, type: WidthType.DXA },
-              margins: { top: 140, bottom: 140, left: 140, right: 140 },
+              margins: { top: sp(140, 90), bottom: sp(140, 90), left: sp(140, 90), right: sp(140, 90) },
               children: multi(f[b.key])
             })] })
           ]
@@ -2135,7 +2177,7 @@ async function buildDocx() {
           boxOwnPage = false;
         } else {
           children.push(boxTable);
-          children.push(new Paragraph({ spacing: { after: 240 }, children: [] }));
+          children.push(new Paragraph({ spacing: { after: sp(240, 60) }, run: { size: FS() }, children: [] }));
         }
         boxTitle = null;
       }
@@ -2143,9 +2185,9 @@ async function buildDocx() {
       else if (b.type === "sigtext") children.push(sigRow(f[b.key]), new Paragraph({ spacing: { after: 180 }, children: [] }));
       else if (b.type === "table") {
         // Stage 1-4 checklists start on a fresh page so they stay together.
-        if (b.key === "t421" && framed) flushFrame();
+        if (b.key === "t421" && framed) { flushFrame(); compact = isBoxTpl(); }
         children.push(...checkTable(b, bodyW));
-        children.push(new Paragraph({ spacing: { after: 240 }, children: [] }));
+        children.push(new Paragraph({ spacing: { after: sp(240, 60) }, run: { size: FS() }, children: [] }));
       }
     }
     if (sec.photos) {
@@ -2231,12 +2273,13 @@ async function buildDocx() {
       if (tail.length) outer.push(new Paragraph({ spacing: { after: 120 }, children: [] }), ...tail);
     }
   }
+  compact = false;
   outer.push(new Paragraph({ children: [] }));   // a document must end with a paragraph, not a table
 
   // ---- Running header/footer ----
   const CONTENT_W = 11906 - 1300 - 1300;
   const headerChildren = [
-    ...(logoBuf ? [new ImageRun({ type: "png", data: logoBuf, transformation: tpl.id === "classA" ? logoBox(78, 44) : logoBox(96, 53),
+    ...(logoBuf ? [new ImageRun({ type: "png", data: logoBuf, transformation: tpl.id === "classA" ? logoBox(44, 28) : logoBox(96, 53),
       altText: { title: "AirSafe", description: "AirSafe logo", name: "headlogo" } })] : []),
     new TextRun({ text: "\tReport: " + (f.reportNo || ""), size: 16, color: NAVY, font: "Arial" })
   ];
@@ -2274,49 +2317,58 @@ async function buildDocx() {
   return Packer.toBlob(doc);
 }
 
-/* Class A Word cover, matching the Review cover: photo on top, blue banner with the
-   title, address, report number and work order number, and the assessor / email /
-   report number / date footer. Full page bleed, no running header or footer. */
+/* Class A Word cover, matching the Review cover. The whole first page is one background
+   image (the photo on top, the blue band colour carried down to the bottom edge) sitting
+   behind the text; the title, address, report number and work order number are laid over
+   it, and the assessor / email / report number / date line is the cover's page footer. */
 async function photoCoverSection() {
   const { Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, BorderStyle, WidthType,
-          ShadingType, TabStopType, HeightRule, VerticalAlign } = docx;
+          TabStopType, HeightRule, VerticalAlign, Header, Footer,
+          HorizontalPositionRelativeFrom, VerticalPositionRelativeFrom, TextWrappingType } = docx;
   const f = report.fields;
-  /* Rows total 15500 of the 16838 twips on the page. The spare ~1300 is deliberate: Word
-     reserves more bottom space than the margins say, and a tighter fit pushed the footer
-     row onto a second page. */
-  const W = 11906, IMG_H = 9800, BAND_H = 4400, FOOT_H = 1300, SIDE = 740, BLUE = "88B6E0";
+  const W = 11906, H = 16838, IMG_H = 9800, BAND_H = 4400, SIDE = 740, BLUE = "88B6E0";
 
-  // Crop the photo like the preview's "background-size: cover; center top".
-  const img = await new Promise((res, rej) => {
-    const i = new Image();
-    i.onload = () => res(i);
-    i.onerror = () => rej(new Error("cover photo could not be loaded"));
-    i.src = "cover-classA.jpg";
-  });
-  const cw = 1400, ch = Math.round(cw * IMG_H / W);
-  const cv = document.createElement("canvas");
-  cv.width = cw; cv.height = ch;
-  const scale = Math.max(cw / img.naturalWidth, ch / img.naturalHeight);
-  const sw = cw / scale, sh = ch / scale;
-  cv.getContext("2d").drawImage(img, (img.naturalWidth - sw) / 2, 0, sw, sh, 0, 0, cw, ch);
-  const photo = new Uint8Array(await (await new Promise(r => cv.toBlob(r, "image/jpeg", 0.85))).arrayBuffer());
+  let background;
+  if (tpl.id === "classB") {
+    // Class B uses the supplied page-sized image (cover-bg.jpg) as is.
+    const res = await fetch("cover-bg.jpg");
+    if (!res.ok) throw new Error("cover background image could not be loaded");
+    background = new Uint8Array(await res.arrayBuffer());
+  } else {
+    /* Class A: build the page-sized background: photo cropped like the preview's
+       "background-size: cover; center top" over the top IMG_H, band colour below it. */
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error("cover photo could not be loaded"));
+      i.src = "cover-classA.jpg";
+    });
+    const cw = 1400, ch = Math.round(cw * H / W), photoH = Math.round(cw * IMG_H / W);
+    const cv = document.createElement("canvas");
+    cv.width = cw; cv.height = ch;
+    const g = cv.getContext("2d");
+    g.fillStyle = "#" + BLUE;
+    g.fillRect(0, 0, cw, ch);
+    const scale = Math.max(cw / img.naturalWidth, photoH / img.naturalHeight);
+    const sw = cw / scale, sh = photoH / scale;
+    g.drawImage(img, (img.naturalWidth - sw) / 2, 0, sw, sh, 0, 0, cw, photoH);
+    background = new Uint8Array(await (await new Promise(r => cv.toBlob(r, "image/jpeg", 0.88))).arrayBuffer());
+  }
 
   const none = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
   const noBorders = { top: none, bottom: none, left: none, right: none };
   const white = (text, o = {}) => new TextRun({ text, font: "Arial", color: "FFFFFF", ...o });
   const innerW = W - 2 * SIDE;
 
+  const tiny = () => new Paragraph({ spacing: { before: 0, after: 0, line: 20, lineRule: "exact" }, children: [new TextRun({ text: "", size: 2 })] });
+
+  // Empty row that keeps the text below the photo; the background image shows through.
   const photoRow = new TableRow({
     height: { value: IMG_H, rule: HeightRule.EXACT },
     children: [new TableCell({
       borders: noBorders, margins: { top: 0, bottom: 0, left: 0, right: 0 },
       width: { size: W, type: WidthType.DXA },
-      children: [new Paragraph({
-        spacing: { before: 0, after: 0 },
-        children: [new ImageRun({ type: "jpg", data: photo,
-          transformation: { width: Math.round(W / 15), height: Math.round(IMG_H / 15) },
-          altText: { title: "Cover photo", description: "Cover photo", name: "coverphoto" } })]
-      })]
+      children: [tiny()]
     })]
   });
 
@@ -2324,49 +2376,79 @@ async function photoCoverSection() {
     height: { value: BAND_H, rule: HeightRule.EXACT },
     children: [new TableCell({
       borders: noBorders, verticalAlign: VerticalAlign.TOP,
-      shading: { fill: BLUE, type: ShadingType.CLEAR, color: "auto" },
       margins: { top: 520, bottom: 0, left: SIDE + 240, right: SIDE },
       width: { size: W, type: WidthType.DXA },
       children: [
         new Paragraph({ spacing: { before: 0, after: 160 }, children: [white(tpl.docTitle, { bold: true, size: 69 })] }),
-        new Paragraph({ spacing: { before: 0, after: 80 }, children: [white(f.siteAddress || "Insert Address", { size: 23 })] }),
-        new Paragraph({ spacing: { before: 0, after: 60 }, children: [white("Report Number: " + (f.reportNo || "Insert Report Number"), { size: 20 })] }),
-        new Paragraph({ spacing: { before: 0, after: 0 }, children: [white("Work Order Number: " + (f.workOrder || "Insert Work Order Number"), { size: 20 })] })
+        ...(tpl.id === "classB" ? [
+          // Class B keeps its own cover fields: date of issue, report number, site address.
+          new Paragraph({ spacing: { before: 0, after: 60 }, children: [white("Date of Issue: " + (fmtDate(f.dateOfIssue) || ""), { size: 20 })] }),
+          new Paragraph({ spacing: { before: 0, after: 60 }, children: [white("Report Number: " + (f.reportNo || ""), { size: 20 })] }),
+          new Paragraph({ spacing: { before: 0, after: 0 }, children: [white("Site Address: " + (f.siteAddress || ""), { size: 20 })] })
+        ] : [
+          new Paragraph({ spacing: { before: 0, after: 80 }, children: [white(f.siteAddress || "Insert Address", { size: 23 })] }),
+          new Paragraph({ spacing: { before: 0, after: 60 }, children: [white("Report Number: " + (f.reportNo || "Insert Report Number"), { size: 20 })] }),
+          new Paragraph({ spacing: { before: 0, after: 0 }, children: [white("Work Order Number: " + (f.workOrder || "Insert Work Order Number"), { size: 20 })] })
+        ])
       ]
     })]
   });
 
-  const footRow = new TableRow({
-    height: { value: FOOT_H, rule: HeightRule.EXACT },
-    children: [new TableCell({
-      borders: noBorders, verticalAlign: VerticalAlign.BOTTOM,
-      shading: { fill: BLUE, type: ShadingType.CLEAR, color: "auto" },
-      margins: { top: 0, bottom: 450, left: SIDE, right: SIDE },
-      width: { size: W, type: WidthType.DXA },
-      children: [
-        new Paragraph({ spacing: { before: 0, after: 140 }, children: [white(f.assessor || "", { bold: true, size: 18 })] }),
-        new Paragraph({
-          spacing: { before: 0, after: 0 },
-          tabStops: [{ type: TabStopType.CENTER, position: Math.round(innerW / 2) }, { type: TabStopType.RIGHT, position: innerW }],
-          border: { top: { style: BorderStyle.SINGLE, size: 4, color: "B8D3EC", space: 6 } },
-          children: [white(`${AIRSAFE_EMAIL}\t${f.reportNo || ""}\t${fmtDate(f.dateOfIssue) || ""}`, { size: 18 })]
-        })
-      ]
+  /* Assessor / email / report number / date, 450 twips above the bottom edge. As a page
+     footer it cannot push anything onto a second page. */
+  const coverFooter = new Footer({
+    children: [
+      new Paragraph({
+        indent: { left: SIDE, right: SIDE },
+        spacing: { before: 0, after: 140 },
+        children: [white(f.assessor || "", { bold: true, size: 18 })]
+      }),
+      new Paragraph({
+        indent: { left: SIDE, right: SIDE },
+        spacing: { before: 0, after: 0 },
+        tabStops: [{ type: TabStopType.CENTER, position: Math.round(W / 2) }, { type: TabStopType.RIGHT, position: W - SIDE }],
+        border: { top: { style: BorderStyle.SINGLE, size: 4, color: "B8D3EC", space: 6 } },
+        children: [white(`${AIRSAFE_EMAIL}\t${f.reportNo || ""}\t${fmtDate(f.dateOfIssue) || ""}`, { size: 18 })]
+      })
+    ]
+  });
+
+  /* The page-sized background lives in the cover's page header, anchored to the page behind
+     the text: the standard way to give one section a full-page background in Word. */
+  const coverHeader = new Header({
+    children: [new Paragraph({
+      spacing: { before: 0, after: 0, line: 20, lineRule: "exact" },
+      children: [new ImageRun({
+        type: "jpg", data: background,
+        transformation: { width: Math.round(W / 15), height: Math.round(H / 15) },
+        floating: {
+          horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, offset: 0 },
+          verticalPosition: { relative: VerticalPositionRelativeFrom.PAGE, offset: 0 },
+          behindDocument: true,
+          allowOverlap: true,
+          lockAnchor: true,
+          layoutInCell: false,
+          wrap: { type: TextWrappingType.NONE }
+        },
+        altText: { title: "Cover background", description: "Cover background", name: "coverbackground" }
+      })]
     })]
   });
 
   return {
-    properties: { page: { size: { width: W, height: 16838 }, margin: { top: 0, right: 0, bottom: 0, left: 0, header: 0, footer: 0 } } },
+    properties: { page: { size: { width: W, height: H }, margin: { top: 0, right: 0, bottom: 1100, left: 0, header: 0, footer: 450 } } },
+    headers: { default: coverHeader },
+    footers: { default: coverFooter },
     children: [
       new Table({
         width: { size: W, type: WidthType.DXA },
         columnWidths: [W],
         indent: { size: 0, type: WidthType.DXA },
         borders: { ...noBorders, insideHorizontal: none, insideVertical: none },
-        rows: [photoRow, bandRow, footRow]
+        rows: [photoRow, bandRow]
       }),
       // Word needs a paragraph after a table; keep it too small to spill onto a new page.
-      new Paragraph({ spacing: { before: 0, after: 0, line: 20, lineRule: "exact" }, children: [new TextRun({ text: "", size: 2 })] })
+      tiny()
     ]
   };
 }
